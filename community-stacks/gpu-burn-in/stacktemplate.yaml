@@ -203,6 +203,13 @@ spec:
       type: boolean
       defaultValue: 'false'
       section: GPU Operator
+    - variable: nvmlMock
+      label: Simulated GPUs (nvml-mock)
+      description: The server's GPUs come from NVIDIA nvml-mock. Adjusts the GPU Operator's validator and GPU
+        Feature Discovery for simulated GPUs. Never enable it on real GPUs.
+      type: boolean
+      defaultValue: 'false'
+      section: GPU Operator
     - variable: telemetry
       label: DCGM Telemetry During Burn-In
       description: Runs standalone DCGM and dcgm-exporter, so the burn-in shows on the Fleet Observability GPU
@@ -286,6 +293,7 @@ spec:
           project: '{{ .Values.argoProject }}'
           driverPreinstalled: '{{ .Values.driverPreinstalled | toString }}'
           telemetry: '{{ .Values.telemetry | toString }}'
+          nvmlMock: '{{ .Values.nvmlMock | toString }}'
     # The GPU Operator Application is Healthy long before a driver is loaded and the device plugin
     # advertises GPUs. This step waits up to readyWaitSeconds for that.
     - name: gpuready

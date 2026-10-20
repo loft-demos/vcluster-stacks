@@ -25,6 +25,7 @@ spec:
   parameters:
     - variable: kubernetesVersion
       label: Kubernetes Version
+      type: string
       options:
         - v1.34.11
         - v1.35.8
@@ -105,6 +106,13 @@ spec:
       type: boolean
       defaultValue: 'false'
       section: Server
+    - variable: nvmlMock
+      label: Simulated GPUs (nvml-mock)
+      description: The server's GPUs come from NVIDIA nvml-mock. Adjusts the GPU Operator's validator and GPU
+        Feature Discovery for simulated GPUs. Never enable it on real GPUs.
+      type: boolean
+      defaultValue: 'false'
+      section: Server
     - variable: telemetry
       label: DCGM Telemetry During Burn-In
       description: Standalone DCGM and dcgm-exporter, so the burn-in shows on the Fleet Observability GPU dashboards.
@@ -124,6 +132,7 @@ spec:
       section: Tests
     - variable: dcgmDiagLevel
       label: DCGM Diagnostic Level
+      type: string
       options: ['1', '2', '3', '4']
       defaultValue: '3'
       section: Tests
@@ -162,6 +171,7 @@ spec:
       section: Tests
     - variable: soakLoad
       label: Soak Load
+      type: string
       options: [dcgm, none]
       defaultValue: dcgm
       section: Tests
@@ -286,7 +296,7 @@ spec:
               # carries no template defaults, and an unset value renders as <nil>, which the
               # Stack rejects. An omitted parameter takes the StackTemplate default instead.
               parameters:
-              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "telemetry" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "recordResult" "netboxUpdate" "releaseServer" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
+              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "telemetry" "nvmlMock" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "recordResult" "netboxUpdate" "releaseServer" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
               {{- if not (kindIs "invalid" (index $.Values $k)) }}
                 {{ $k }}: {{ index $.Values $k | toString | quote }}
               {{- end }}

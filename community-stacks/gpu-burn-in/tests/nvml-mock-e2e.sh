@@ -107,7 +107,7 @@ for s in "${order[@]}"; do
     [argoConnector]=$connector [gpuNodeProvider]=$provider [nodeTypeProperty]=$prop
     [nodeTypeValue]=$value [chartRepoURL]=$chart_repo [chartRevision]=$chart_rev
     [expectedGPUs]=$gpus [gpuModel]=B200 [assetID]=$vc [profile]=nvml-mock
-    [driverPreinstalled]=true [runDCGMDiag]=false [runNCCL]=false [soakMinutes]=3 [soakLoad]=none
+    [driverPreinstalled]=true [nvmlMock]=true [runDCGMDiag]=false [runNCCL]=false [soakMinutes]=3 [soakLoad]=none
   )
   IFS=, read -ra kvs <<<"$overrides"
   for kv in "${kvs[@]}"; do params[${kv%%=*}]=${kv#*=}; done

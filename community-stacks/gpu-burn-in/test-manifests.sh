@@ -188,6 +188,10 @@ def check_parameters(where, params):
         t = p.get("type")
         if t not in TYPES:
             fail(f"{where}: {v} has type {t!r}")
+        if t is None:
+            # The management API merges parameter lists by position on apply, so an untyped
+            # parameter can inherit its neighbour's type, such as number on a string.
+            fail(f"{where}: {v} has no type; give every parameter an explicit type")
         if not p.get("label"):
             fail(f"{where}: {v} has no label")
         if "defaultValue" not in p:
@@ -350,7 +354,7 @@ for stack_var, app, app_var in [
 VARIANTS = {
     "defaults": {},
     "nvml-mock": {"runDCGMDiag": "false", "runNCCL": "false", "soakLoad": "none", "soakMinutes": "5",
-                  "driverPreinstalled": "true", "expectedGPUs": "4", "gpuModel": "B200"},
+                  "driverPreinstalled": "true", "expectedGPUs": "4", "gpuModel": "B200", "nvmlMock": "true"},
     "no-soak": {"soakMinutes": "0", "reportS3URI": "s3://bucket/q", "s3CredentialsSecret": "s3", "telemetry": "false"},
 }
 GPUS_SEEN = "7"  # what gpuready "observed": deliberately not expectedGPUs
@@ -381,6 +385,9 @@ for variant, overrides in VARIANTS.items():
                 hv = yaml.safe_load(spec_r["spec"]["source"]["helm"]["values"])
                 if hv["driver"]["enabled"] is (values["driverPreinstalled"] == "true"):
                     fail(f"{where}: driver.enabled={hv['driver']['enabled']} with driverPreinstalled={values['driverPreinstalled']}")
+                mock_env = (hv.get("validator") or {}).get("driver", {}).get("env") or []
+                if any(e.get("name") == "DISABLE_DEV_CHAR_SYMLINK_CREATION" for e in mock_env) is not (values["nvmlMock"] == "true"):
+                    fail(f"{where}: the nvml-mock validator settings must follow nvmlMock={values['nvmlMock']}")
                 want = values["telemetry"] != "false"
                 if hv["dcgm"]["enabled"] is not want or hv["dcgmExporter"]["enabled"] is not want:
                     fail(f"{where}: DCGM and dcgm-exporter must both follow telemetry={values['telemetry']}")

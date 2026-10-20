@@ -27,6 +27,7 @@ spec:
     assetID: mock-b200-001
     profile: nvml-mock
     driverPreinstalled: "true"
+    nvmlMock: "true"
     runDCGMDiag: "false"
     runNCCL: "false"
     soakMinutes: "5"

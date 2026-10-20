@@ -2,8 +2,10 @@
 # Platform storage objects there and writes through the Platform management API.
 
 image:
-  repository: ghcr.io/loft-sh/vcluster-stacks/gpu-burn-in-recorder
-  # Defaults to the chart appVersion.
+  # Published by .github/workflows/gpu-burn-in-recorder-image.yml.
+  repository: ghcr.io/loft-demos/gpu-burn-in-recorder
+  # Defaults to the chart appVersion, published from tag gpu-burn-in-recorder-v<appVersion>.
+  # Until then, use a branch tag (gpu-burn-in) or sha-<short sha>.
   tag: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []

@@ -206,63 +206,19 @@ The lifecycle is:
 
 ### The recorder controller
 
-[recorder/](recorder/) is a small controller with its own Helm chart,
-[recorder/chart/](recorder/chart/). Install it on the cluster that runs vCluster Platform. For
-each StackInstance of `gpu-burn-in`, it works like this:
+[recorder/](recorder/) is a small controller with its own Helm chart. Install it once on the
+cluster that runs vCluster Platform. When a run's report is captured, it does the following:
 
-1. It waits until the `report` task is Healthy and its outputs are captured in the instance's
-   outputs Secret, `stack-outputs-<instance>`.
-2. It finds the server the run tested. The tenant cluster's NodeClaims lead to the Machines whose
-   `machines.vcluster.com/node-claim` annotation names them. No `assetID` is needed, and the
-   controller cannot record on the wrong server.
-3. It writes the label and annotations to the Machine or its BareMetalHost. With `netboxUpdate`,
-   it first updates the device that the Machine's `netbox.vcluster.com/url` annotation names.
-4. With `releaseServer`, it deletes the tenant cluster.
+1. It finds the server through the tenant cluster's NodeClaim. No `assetID` is needed.
+2. It writes the record to the Machine or the BareMetalHost.
+3. Optionally, it updates NetBox.
+4. Optionally, it deletes the tenant cluster.
 
-It records each run once. The target carries a `<domain>/run` annotation naming the
-StackInstance, and the controller skips a target that already has it. NetBox is written before the
-target, so a run that fails partway is retried until the target records it.
+Each run is recorded once. The Stack parameters `recordResult`, `netboxUpdate` and
+`releaseServer` set what it does per run.
 
-Three Stack parameters set what it does per run: `recordResult` (default `true`), `netboxUpdate`
-(default `false`) and `releaseServer` (default `false`). Settings shared by every run are chart
-values: the label domain, the target, the NetBox token and tags, and the kubeconfigs for other
-clusters.
-
-Install, from the repository root:
-
-```bash
-# On a Platform build that lets users label Machines:
-helm upgrade --install gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
-  --namespace gpu-burn-in-recorder --create-namespace \
-  --set labelDomain=gpu-qualification.example.com
-
-# On 4.13 and earlier, record on the BareMetalHost. A Metal3 provider whose clusterRef is another
-# Platform cluster needs a kubeconfig for it, in a Secret keyed by the cluster's name:
-kubectl -n gpu-burn-in-recorder create secret generic recorder-clusters \
-  --from-file=spark-cluster=spark-cluster.kubeconfig
-helm upgrade --install gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
-  --namespace gpu-burn-in-recorder --create-namespace \
-  --set target=bmh --set localCluster=loft-cluster \
-  --set clusterKubeconfigs.existingSecret=recorder-clusters
-```
-
-Notes:
-
-- **Kubeconfigs need a static credential.** A kubeconfig from `vcluster platform connect cluster`
-  authenticates through the `vcluster` CLI, which the controller image does not have. Use one
-  with a token, such as a Platform access key or a ServiceAccount token on that cluster, with
-  `get` and `patch` on `baremetalhosts.metal3.io`.
-- **NetBox:** create a Secret with the API token, then set `netbox.tokenSecret.name`,
-  `netbox.admitTag` and `netbox.qualifiedTag`.
-- **Start with `dryRun: true`.** The controller then logs every write it would make, including the
-  tenant cluster deletion.
-- **RBAC:** the controller reads Platform storage objects, may `get` but never list Secrets, and
-  writes only Machines, BareMetalHosts on the local cluster, Events, and, with
-  `rbac.releaseServer`, deletes VirtualClusterInstances.
-- **The image:** `ghcr.io/loft-sh/vcluster-stacks/gpu-burn-in-recorder` is not published yet.
-  Build it from [recorder/Dockerfile](recorder/Dockerfile), or run the controller from your
-  workstation: `go run ./community-stacks/gpu-burn-in/recorder --dry-run` uses your current
-  kubeconfig context, which must point at the Platform cluster.
+See the [recorder README](recorder/README.md) for install, configuration, permissions and
+troubleshooting.
 
 ## Requirements
 
@@ -330,6 +286,7 @@ Set these on the tenant cluster template, which passes the Stack parameters thro
 | `maxGPUTempC` | `90` | The soak fails above this |
 | `reportS3URI`, `s3CredentialsSecret`, `s3Endpoint` | empty | Optional S3 copy of the report |
 | `recordResult`, `netboxUpdate`, `releaseServer` | `true`, `false`, `false` | What the [recorder controller](#the-recorder-controller) does with this run. No effect without it |
+| `nvmlMock` | `false` | `true` only on NVIDIA nvml-mock servers: validator and GPU Feature Discovery settings for simulated GPUs |
 | `telemetry` | `true` | DCGM and dcgm-exporter during the burn-in, for the Fleet Observability dashboards. See [DCGM and burn-in telemetry](#dcgm-and-burn-in-telemetry) |
 | `driverPreinstalled` | `false` | `true` when the node image has the NVIDIA driver |
 | `argoProject`, `chartRepoURL`, `chartRevision` | `default`, this repository, `main` | Where Argo CD reads the step chart |
@@ -357,6 +314,12 @@ kubectl apply -f community-stacks/gpu-burn-in/apps/ \
   -f community-stacks/gpu-burn-in/stacktemplate.yaml \
   -f community-stacks/gpu-burn-in/virtualclustertemplate.yaml
 ```
+
+To update templates that are already installed, use `kubectl replace -f` with the same files, not
+`kubectl apply`. The management API merges a template's `spec.parameters` by position on apply, so
+a parameter added, removed or moved can leave its neighbours with the wrong fields. In one case a
+string parameter picked up `type: number`, and every new tenant cluster then failed with
+`TemplateResolved=False`.
 
 Apply the templates before creating a tenant cluster, never during a run. A task renders its
 template when it starts, so a mid-run change reaches only the tasks that have not started yet.
@@ -442,6 +405,9 @@ CUDA, so only part of the Stack can run on it.
 | `nccl` | Disable (`runNCCL: false`) | Needs CUDA |
 | `soak` | Telemetry only (`soakLoad: none`) | `dcgmi dmon` reads the simulation; there is no load to apply |
 | `report`, `verdict`, outputs | Runs | |
+
+Set `nvmlMock: true`. The GPU Operator's validator otherwise tries to load the NVIDIA kernel module
+and run a CUDA workload, and the device plugin waits for it forever.
 
 That covers the task graph, the `gpuready` output and GPU requests, stop-on-failure, the soak's
 thermal and XID checks, the report and its outputs, and the verdict. Use
@@ -536,6 +502,20 @@ kubectl delete argocdapplicationtemplates,stacktemplates,virtualclustertemplates
 - **`gpuready` failed: no `nvidia.com/gpu` advertised.** The driver, toolkit or device plugin did
   not come up. Check `kubectl -n gpu-operator get pods` and the driver pod's log. That is a
   finding about the server and its image, and the report records it.
+- **`gpu-operator` Failed with `CRD ... is not established`.** Argo CD briefly reports the GPU
+  Operator Degraded while its CRDs register, and the Platform fails a task as soon as its
+  Application is Degraded. Once the Application is Healthy, retry the task:
+  `kubectl -n <project-namespace> annotate stackinstance <name> platform.vcluster.com/stack-retry=gpu-operator --overwrite`.
+- **`gpu-operator` stays Progressing, and the `gpu-operator` namespace never appears.** The Argo CD
+  sync can hang at `Creating namespace`. If the Application's operation has run for minutes with
+  nothing created, terminate it, restart `argocd-application-controller` if it stays stuck, then
+  retry the task as above.
+- **`nvidia-dcgm-exporter` in CrashLoopBackOff, `Failed to connect to remote hostengine`.** With
+  `telemetry`, the exporter can start before the standalone host engine accepts clients. It
+  recovers on its own after a few restarts, usually within two minutes.
+- **On nvml-mock, `nvidia-operator-validator` in `Init:Error`, `failed to load module nvidia`.**
+  Set `nvmlMock: true`. Simulated GPUs have no kernel module to load, and no CUDA for the
+  validation workload.
 - **A test is `error`, not `failed`.** The test could not run: a timeout, a host engine that did
   not start, or a missing binary. Read the `run` container log, or the `log` key of its result
   ConfigMap.
