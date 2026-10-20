@@ -10,7 +10,12 @@
 result() {
   details=${3:-}
   [ -n "$details" ] || details='{}'
-  details=$(echo "$details" | jq --arg test "$TEST" "($METRICS)"' as $m | . + {metrics: ($m | with_entries(select(.value != null)))}')
+  # Only a test that ran has measurements; zeros for a disabled or skipped test would read as
+  # "ran and found nothing".
+  case $1 in
+    passed | failed)
+      details=$(echo "$details" | jq --arg test "$TEST" "($METRICS)"' as $m | . + {metrics: ($m | with_entries(select(.value != null)))}') ;;
+  esac
   jq -n --arg status "$1" --arg summary "$2" --argjson details "$details" \
     '{status: $status, summary: $summary, details: $details}' >"$WORK/result.json"
 }

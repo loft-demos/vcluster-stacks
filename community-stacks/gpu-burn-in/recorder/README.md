@@ -70,8 +70,8 @@ providers.
 
 ```bash
 kubectl get qualificationreports
-NAME                                                          MACHINE                                             RESULT   FAILED   PROFILE                    SOURCE   FINISHED
-metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-6ae3ece2   metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge   failed   [...]    nvml-mock-ecc              Stack    3m
+NAME                                                     MACHINE                                         RESULT   FAILED   PROFILE          SOURCE   FINISHED
+metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f   metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge   passed   []       nvml-mock-pass   Stack    16s
 ```
 
 | Field | Content |
@@ -89,7 +89,8 @@ make reports easy to select. The controller keeps the newest `keepReports` (20) 
 reads the full report from the report task's `reportjson` output; a Stack without that output
 gives a report without hardware and tests.
 
-Each test's `metrics` is a flat set of named numbers, the same names whatever ran the test:
+Each test that ran, passed or failed, carries `metrics`: a flat set of named numbers, the same names
+whatever ran the test. Disabled, skipped and errored tests carry none.
 
 | Test | Metrics |
 | --- | --- |
@@ -351,6 +352,12 @@ run on an RTX 2000 Ada, with `target: bmh`:
 - **Two more runs:** an RTX run with telemetry and an nvml-mock run with an injected uncorrectable
   ECC error. It recorded `passed` and `failed: inventory,soak` on their BareMetalHosts and, with
   `releaseServer: true`, deleted both tenant clusters.
+
+**QualificationReport, 2026-10-20:** a passing nvml-mock run produced report
+`metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f`. It had full hardware (8 x NVIDIA B200,
+driver 580.65.06, DMI) from the `reportjson` output, and each test's status and metrics. `/metrics`
+served the series computed from it, for example `gpu_qualification_passed` 1 and soak
+`peak_temp_c` 73.
 
 Not tested yet:
 

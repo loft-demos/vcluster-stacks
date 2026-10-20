@@ -43,6 +43,12 @@ for case in "$here"/fixtures/*/; do
       *"$WANT_SUMMARY"*) ;;
       *) echo "FAIL $name: summary '$summary' does not contain '$WANT_SUMMARY'"; exit 1 ;;
     esac
+    case "$got" in
+      passed | failed) ;;
+      *) if [ "$(jq '.details.metrics // {} | length' "$WORK/result.json")" != 0 ]; then
+           echo "FAIL $name: a $got test carries metrics"; exit 1
+         fi ;;
+    esac
     # WANT_METRIC="name=value ..." checks the metrics contract the recorder publishes.
     for want in ${WANT_METRIC:-}; do
       got_m=$(jq -r --arg k "${want%%=*}" '.details.metrics[$k] // "absent"' "$WORK/result.json")
