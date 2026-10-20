@@ -18,6 +18,7 @@ QualificationReport, so hand-recorded runs appear in the same history and metric
 - [Configure](#configure)
 - [Per-run parameters](#per-run-parameters)
 - [QualificationReport](#qualificationreport)
+- [GPU Burn-In dashboard](#gpu-burn-in-dashboard)
 - [Verify](#verify)
 - [Permissions](#permissions)
 - [Build](#build)
@@ -122,6 +123,47 @@ All metrics describe each machine's latest report, except `gpu_qualification_rep
 For example, servers that are not qualified: `gpu_qualification_passed == 0`. Peak soak temperature
 per server: `gpu_qualification_test_metric{test="soak",metric="peak_temp_c"}`.
 
+### GPU Burn-In dashboard
+
+The chart installs a Grafana dashboard, **GPU Burn-In** (uid `gpu-burn-in`), as a ConfigMap
+labeled `grafana_dashboard: "1"` in `vcluster-platform`. vCluster Platform's bundled Grafana loads
+it from there. For another Grafana, set `dashboard.namespace` and `dashboard.labels` to what its
+dashboard sidecar watches, or import `chart/dashboards/gpu-burn-in.json`.
+
+It shows, filtered by provider, profile and machine:
+
+- Qualified and not-qualified servers, the pass rate, servers with ECC errors or an XID, and the
+  last qualification.
+- A table of each server's latest result, GPUs found and expected, ECC errors, soak peak
+  temperature and NCCL bandwidth.
+- A matrix of each server's test results.
+- Bars for soak temperature, power and throttling, NCCL bandwidth by collective, and GPU counts.
+- History: servers by result over time, and reports kept per server.
+
+The dashboard queries `gpu_qualification_*` metrics, so they must reach the Prometheus behind that
+Grafana. With Fleet Observability, nothing scrapes the Platform cluster's workloads, so the chart
+can push them itself with `metrics.fleetObservability.enabled`. A collector sidecar scrapes the
+controller and writes to the Fleet gateway with a cluster's metrics-writer key, the way Fleet
+Observability's own collectors do:
+
+```bash
+# The key is Secret otel-otlp-auth in namespace observability on the Platform cluster. Copy it to
+# the recorder's namespace; refresh the copy if the key is rotated.
+kubectl -n observability get secret otel-otlp-auth -o json \
+  | jq '{apiVersion, kind, type, data, metadata: {name: .metadata.name, namespace: "gpu-burn-in-recorder"}}' \
+  | kubectl apply -f -
+helm upgrade gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
+  -n gpu-burn-in-recorder --reset-then-reuse-values \
+  --set metrics.fleetObservability.enabled=true \
+  --set metrics.fleetObservability.endpoint=https://otel.<platform host> \
+  --set metrics.fleetObservability.cluster=<platform cluster name>
+```
+
+With a Prometheus Operator, set `metrics.serviceMonitor.enabled` instead. To change the
+dashboard, edit [dashboards/gen_gpu_burn_in.py](dashboards/gen_gpu_burn_in.py) and rerun it;
+`../test-manifests.sh` fails when the committed JSON is stale or queries a metric the recorder
+doesn't serve.
+
 ## Requirements
 
 - vCluster Platform 4.12.2 or later, which stores Stack outputs in the outputs Secret.
@@ -186,6 +228,8 @@ Chart values hold the settings shared by every run.
 | `netbox.qualifiedTag` | empty | Tag added to a device that passes |
 | `keepReports` | `20` | QualificationReports kept per machine. `0` keeps all |
 | `metrics.service.enabled`, `metrics.serviceMonitor.enabled` | `true`, `false` | Service and ServiceMonitor for `/metrics` |
+| `metrics.fleetObservability.*` | off | Push the metrics to the Fleet gateway: `enabled`, `endpoint`, `cluster`, `authSecret`. See [GPU Burn-In dashboard](#gpu-burn-in-dashboard) |
+| `dashboard.enabled`, `.namespace`, `.labels` | `true`, `vcluster-platform`, `grafana_dashboard: "1"` | The GPU Burn-In dashboard ConfigMap |
 | `dryRun` | `false` | Log writes instead of making them |
 | `rbac.releaseServer` | `true` | Grant delete on VirtualClusterInstances, for runs that set `releaseServer` |
 | `replicas`, `leaderElection` | `1`, `false` | More than one replica needs leader election |

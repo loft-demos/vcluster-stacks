@@ -60,6 +60,31 @@ metrics:
     enabled: false
     interval: 60s
     labels: {}
+  # Pushes the metrics to vCluster Platform Fleet Observability: an OpenTelemetry collector sidecar
+  # scrapes the controller and writes to the Fleet gateway with a cluster's metrics-writer key,
+  # like Fleet Observability's own collectors. Use it where nothing scrapes the Platform cluster.
+  fleetObservability:
+    enabled: false
+    # The Fleet gateway, for example https://otel.<platform host>.
+    endpoint: ""
+    # The Platform cluster the metrics are attributed to, for example loft-cluster.
+    cluster: ""
+    # Secret in this release's namespace holding the Authorization header value, as the bundled
+    # collectors use it (on the Platform cluster, Secret otel-otlp-auth in namespace observability).
+    authSecret:
+      name: otel-otlp-auth
+      key: authorization
+    scrapeInterval: 60s
+    # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
+    image: otel/opentelemetry-collector-contrib:0.154.0
+
+# The GPU Burn-In Grafana dashboard, as a ConfigMap the Grafana dashboard sidecar loads. vCluster
+# Platform's bundled Grafana loads ConfigMaps labelled grafana_dashboard: "1" in vcluster-platform.
+dashboard:
+  enabled: true
+  namespace: vcluster-platform
+  labels:
+    grafana_dashboard: "1"
 
 rbac:
   # Grants delete on VirtualClusterInstances, so runs that set releaseServer can delete their

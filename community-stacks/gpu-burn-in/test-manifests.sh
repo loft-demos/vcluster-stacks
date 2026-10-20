@@ -615,6 +615,48 @@ for e in errors:
 sys.exit(1 if errors else 0)
 SCHEMA
 
+# The GPU Burn-In dashboard: the committed JSON is what its generator writes, and every metric it
+# queries is one the recorder serves.
+cp "$root/recorder/chart/dashboards/gpu-burn-in.json" "$work/dashboard.committed.json"
+python3 "$root/recorder/dashboards/gen_gpu_burn_in.py" >/dev/null
+if ! cmp -s "$work/dashboard.committed.json" "$root/recorder/chart/dashboards/gpu-burn-in.json"; then
+  echo "FAIL recorder/chart/dashboards/gpu-burn-in.json is stale; rerun recorder/dashboards/gen_gpu_burn_in.py and commit it" >&2
+  cp "$work/dashboard.committed.json" "$root/recorder/chart/dashboards/gpu-burn-in.json"
+  status=1
+fi
+python3 - "$root" <<'DASH' || status=1
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+served = set(re.findall(r'NewDesc\("(gpu_qualification_[a-z_]+)"', (root / "recorder/internal/qualify/metrics.go").read_text()))
+d = json.loads((root / "recorder/chart/dashboards/gpu-burn-in.json").read_text())
+exprs = []
+def walk(n):
+    if isinstance(n, dict):
+        for k, v in n.items():
+            if k in ("expr", "query", "definition") and isinstance(v, str):
+                exprs.append(v)
+            walk(v)
+    elif isinstance(n, list):
+        for v in n:
+            walk(v)
+walk(d)
+bad = sorted({m for e in exprs for m in re.findall(r"gpu_qualification_[a-z_]+", e)} - served)
+for m in bad:
+    print(f"FAIL GPU Burn-In dashboard queries {m}, which the recorder does not serve", file=sys.stderr)
+if not served:
+    print("FAIL found no metrics in recorder/internal/qualify/metrics.go", file=sys.stderr)
+sys.exit(1 if bad or not served else 0)
+DASH
+for args in "--set dashboard.enabled=false" "--set metrics.fleetObservability.enabled=true --set metrics.fleetObservability.endpoint=https://otel.example.com --set metrics.fleetObservability.cluster=c"; do
+  # shellcheck disable=SC2086
+  helm template r "$root/recorder/chart" $args >/dev/null || { echo "FAIL recorder chart does not render with: $args" >&2; status=1; }
+done
+if helm template r "$root/recorder/chart" --set metrics.fleetObservability.enabled=true >/dev/null 2>&1; then
+  echo "FAIL recorder chart enables Fleet push without an endpoint and cluster" >&2
+  status=1
+fi
+
 # The recorder controller and its chart.
 helm lint --quiet "$root/recorder/chart" >/dev/null || { helm lint "$root/recorder/chart"; status=1; }
 for args in "" "--set target=bmh --set localCluster=loft-cluster --set clusterKubeconfigs.existingSecret=c --set netbox.tokenSecret.name=n"; do

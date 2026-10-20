@@ -535,10 +535,13 @@ kubectl delete argocdapplicationtemplates,stacktemplates,virtualclustertemplates
   Operator Degraded while its CRDs register, and the Platform fails a task as soon as its
   Application is Degraded. Once the Application is Healthy, retry the task:
   `kubectl -n <project-namespace> annotate stackinstance <name> platform.vcluster.com/stack-retry=gpu-operator --overwrite`.
-- **`gpu-operator` stays Progressing, and the `gpu-operator` namespace never appears.** The Argo CD
-  sync can hang at `Creating namespace`. If the Application's operation has run for minutes with
-  nothing created, terminate it, restart `argocd-application-controller` if it stays stuck, then
-  retry the task as above.
+- **`gpu-operator` stays Progressing while the Argo CD sync stalls.** On the test lab, the sync
+  stalled twice: once at `Creating namespace`, with nothing created, and once at `waiting for
+  completion of hook batch/Job/gpu-operator-upgrade-crd`, minutes after that Job had completed.
+  Terminate the Application's operation
+  (`kubectl -n argocd patch application <name> --type merge -p '{"status":{"operationState":{"phase":"Terminating"}}}'`).
+  In the hook case that was enough, and the task went Healthy. If it stays stuck, restart
+  `argocd-application-controller`, then retry the task as above.
 - **`nvidia-dcgm-exporter` in CrashLoopBackOff, `Failed to connect to remote hostengine`.** With
   `telemetry`, the exporter can start before the standalone host engine accepts clients. It
   recovers on its own after a few restarts, usually within two minutes.

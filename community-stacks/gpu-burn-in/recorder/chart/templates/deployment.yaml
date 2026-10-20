@@ -90,7 +90,41 @@ spec:
               mountPath: /etc/gpu-burn-in-recorder/netbox
               readOnly: true
             {{- end }}
+        {{- with (.Values.metrics | default dict).fleetObservability }}
+        {{- if .enabled }}
+        # Scrapes the controller's metrics and pushes them to Fleet Observability.
+        - name: fleet-collector
+          image: {{ .image | quote }}
+          args: ["--config=/etc/otelcol/config.yaml"]
+          env:
+            - name: FLEET_AUTHORIZATION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .authSecret.name | quote }}
+                  key: {{ .authSecret.key | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: fleet-collector
+              mountPath: /etc/otelcol
+              readOnly: true
+        {{- end }}
+        {{- end }}
       volumes:
+        {{- if ((.Values.metrics | default dict).fleetObservability | default dict).enabled }}
+        - name: fleet-collector
+          configMap:
+            name: {{ include "recorder.name" . }}-fleet-collector
+        {{- end }}
         {{- with .Values.clusterKubeconfigs.existingSecret }}
         - name: clusters
           secret:
