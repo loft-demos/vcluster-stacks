@@ -415,7 +415,7 @@ CUDA, so only part of the Stack can run on it.
 Set `nvmlMock: true`. The GPU Operator's validator otherwise tries to load the NVIDIA kernel module
 and run a CUDA workload, and the device plugin waits for it forever.
 
-That covers the task graph, the `gpuready` output and GPU requests, stop-on-failure, the soak's
+That covers the task graph, the `gpuready` output, the unhealthy-GPU check, stop-on-failure, the soak's
 thermal and XID checks, the report and its outputs, and the verdict. Use
 [example/stackinstance-nvml-mock.yaml](example/stackinstance-nvml-mock.yaml), or run the scenarios
 with injected faults:
@@ -593,15 +593,31 @@ That run confirmed several things:
 
 That run used the Stack without the telemetry change (each DCGM step had its own host engine).
 
-Not exercised yet:
+**RTX 2000 Ada with `telemetry: true`, 2026-10-20.** Every step passed again, with the DCGM
+diagnostics and the soak running through the GPU Operator's `nvidia-dcgm` and the profiling pause
+working (`Successfully paused profiling`). dcgm-exporter restarted four times before the host
+engine accepted it, then served metrics. The recorder, running from a workstation, recorded
+`passed` on the BareMetalHost and deleted the tenant cluster (`releaseServer`).
 
-- `telemetry: true`: diagnostics and the soak through the GPU Operator's `nvidia-dcgm`, and the
-  profiling pause.
+**nvml-mock B200 server with an injected fault, 2026-10-20.**
+`nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --xid 48`, injected while `gpuready` ran:
+
+- `inventory` failed with `uncorrected ECC errors: GPU 0=2; device plugin advertises 7 of 8 GPUs:
+  one is unhealthy`.
+- The soak was skipped by stop-on-failure, and the report said `failed: inventory,soak`.
+- The recorder wrote `result=failed` and the summary to the server's BareMetalHost, then released
+  it.
+
+The run also showed what nvml-mock needs from the GPU Operator (`nvmlMock`). It also showed why GPU
+tests must not request `nvidia.com/gpu`: the unhealthy GPU left a pod requesting 8 Pending, before
+this was changed.
+
+Not exercised yet:
 - Any multi-GPU server, NVLink, DCGM levels 3 and 4, or an NCCL bandwidth floor.
 - A failing server on real hardware. The fixtures and nvml-mock cover the failure paths.
-- The `nvml-mock-e2e.sh` scenarios.
-- The recorder writing for real, in-cluster from its image, on either target, and NetBox updates
-  and `releaseServer`. Its unit tests cover these against a fake API server and a fake NetBox.
+- The `nvml-mock-e2e.sh` scenarios as a script, and the thermal and XID-during-soak faults.
+- The recorder in-cluster from its image, the `machine` target, and NetBox updates. Its unit tests
+  cover these against a fake API server and a fake NetBox.
 - The S3 upload.
 
 ## License

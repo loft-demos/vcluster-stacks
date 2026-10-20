@@ -281,9 +281,13 @@ run on an RTX 2000 Ada, with `target: bmh`:
   `metal3-us-va-blacksburg-dc1.rack-c-u12-xlarge-gpu`, then to BareMetalHost
   `metal3-system/rack-c-u12-xlarge-gpu` on `spark-cluster`, without an `assetID`.
 - **For real:** it wrote `result=passed` and the annotations to that BareMetalHost, once.
+- **Two more runs:** an RTX run with telemetry and an nvml-mock run with an injected uncorrectable
+  ECC error. It recorded `passed` and `failed: inventory,soak` on their BareMetalHosts and, with
+  `releaseServer: true`, deleted both tenant clusters.
 
 Not tested yet:
 
-- In-cluster from the image, including how the management API authorizes the ServiceAccount.
+- In-cluster from the image, including how the management API authorizes the ServiceAccount for the
+  tenant cluster delete. The workstation runs used a Platform admin's credentials.
 - The `machine` target on a Platform build that allows Machine labels.
-- NetBox updates and `releaseServer` against a live Platform. The unit tests cover both.
+- NetBox updates. The unit tests cover them.
