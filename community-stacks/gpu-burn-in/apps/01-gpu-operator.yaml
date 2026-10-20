@@ -1,0 +1,97 @@
+# The GPU Operator configured for qualification rather than for workloads:
+#   - No standalone DCGM and no dcgm-exporter. DCGM active diagnostics need the GPUs to themselves,
+#     and the exporter's profiling metrics hold the profiling module the diagnostics use. Each test
+#     starts its own DCGM host engine inside its pod.
+#   - No MIG manager and MIG strategy none: whole GPUs only.
+#   - No node pools or taints: the tenant cluster has one node, the server being qualified, and the
+#     controllers run there too.
+# A node labeled nvidia.com/gpu.deploy.driver=false or nvidia.com/gpu.deploy.container-toolkit=false
+# keeps its preinstalled driver or toolkit, which is how nvml-mock nodes join.
+apiVersion: management.loft.sh/v1
+kind: ArgoCDApplicationTemplate
+metadata:
+  name: gpu-burn-in-gpu-operator
+  labels:
+    app.kubernetes.io/part-of: gpu-burn-in-stack
+spec:
+  displayName: GPU Burn-In - GPU Operator
+  owner:
+    team: loft-admins
+  parameters:
+    - variable: version
+      label: Chart Version
+      type: string
+      required: true
+      # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
+      defaultValue: v26.3.3
+    - variable: project
+      label: Argo CD Project
+      type: string
+      required: true
+      defaultValue: default
+    - variable: driverPreinstalled
+      label: NVIDIA Driver Preinstalled
+      type: boolean
+      defaultValue: 'false'
+  template:
+    spec:
+      destination:
+        namespace: gpu-operator
+      project: '{{ .Values.project }}'
+      source:
+        chart: gpu-operator
+        repoURL: https://helm.ngc.nvidia.com/nvidia
+        targetRevision: '{{ .Values.version }}'
+        helm:
+          releaseName: gpu-operator
+          values: |
+            operator:
+              defaultRuntime: containerd
+            driver:
+              enabled: {{ if eq (.Values.driverPreinstalled | toString) "true" }}false{{ else }}true{{ end }}
+            toolkit:
+              enabled: true
+            devicePlugin:
+              enabled: true
+            cdi:
+              enabled: true
+            mig:
+              strategy: none
+            migManager:
+              enabled: false
+            dcgm:
+              enabled: false
+            dcgmExporter:
+              enabled: false
+            nodeStatusExporter:
+              enabled: false
+            nfd:
+              enabled: true
+            gfd:
+              enabled: true
+            node-feature-discovery:
+              postDeleteCleanup: false
+              worker:
+                tolerations:
+                - key: nvidia.com/gpu
+                  operator: Exists
+                  effect: NoSchedule
+            daemonsets:
+              tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          backoff:
+            duration: 30s
+            factor: 2
+            maxDuration: 5m
+          limit: 10
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
