@@ -83,6 +83,10 @@ metrics:
 dashboard:
   enabled: true
   namespace: vcluster-platform
+  # The Prometheus datasource the dashboard queries. Empty finds it at install, in the namespace
+  # above: the control plane datasource of metrics.fleetObservability.cluster, else Fleet
+  # Observability's. Found or set, the selector is hidden.
+  datasourceUID: ""
   labels:
     grafana_dashboard: "1"
 

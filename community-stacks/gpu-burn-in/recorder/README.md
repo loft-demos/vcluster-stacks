@@ -127,7 +127,14 @@ per server: `gpu_qualification_test_metric{test="soak",metric="peak_temp_c"}`.
 
 The chart installs a Grafana dashboard, **GPU Burn-In** (uid `gpu-burn-in`), as a ConfigMap
 labeled `grafana_dashboard: "1"` in `vcluster-platform`. vCluster Platform's bundled Grafana loads
-it from there. For another Grafana, set `dashboard.namespace` and `dashboard.labels` to what its
+it from there.
+
+vCluster Platform's Grafana lists one Prometheus datasource per cluster and tenant cluster, named
+by generated UUID. The chart finds the right one at install and hides the selector. It prefers the
+control plane datasource of `metrics.fleetObservability.cluster` (`ds-controlplane-<cluster>`),
+where the pushed series land, then Fleet Observability's. Set `dashboard.datasourceUID` to choose
+one yourself. The ConfigMap's `gpu-burn-in.vcluster-stacks.io/datasource` annotation shows which
+was used, or `selectable` when none was found, as with `helm template`. For another Grafana, set `dashboard.namespace` and `dashboard.labels` to what its
 dashboard sidecar watches, or import `chart/dashboards/gpu-burn-in.json`.
 
 It shows, filtered by provider, profile and machine:
@@ -230,6 +237,7 @@ Chart values hold the settings shared by every run.
 | `metrics.service.enabled`, `metrics.serviceMonitor.enabled` | `true`, `false` | Service and ServiceMonitor for `/metrics` |
 | `metrics.fleetObservability.*` | off | Push the metrics to the Fleet gateway: `enabled`, `endpoint`, `cluster`, `authSecret`. See [GPU Burn-In dashboard](#gpu-burn-in-dashboard) |
 | `dashboard.enabled`, `.namespace`, `.labels` | `true`, `vcluster-platform`, `grafana_dashboard: "1"` | The GPU Burn-In dashboard ConfigMap |
+| `dashboard.datasourceUID` | found at install | The Prometheus datasource the dashboard queries |
 | `dryRun` | `false` | Log writes instead of making them |
 | `rbac.releaseServer` | `true` | Grant delete on VirtualClusterInstances, for runs that set `releaseServer` |
 | `replicas`, `leaderElection` | `1`, `false` | More than one replica needs leader election |
