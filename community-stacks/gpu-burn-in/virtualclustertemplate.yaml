@@ -255,30 +255,12 @@ spec:
               displayName: GPU Burn-In and Qualification
               templateRef:
                 name: gpu-burn-in
+              # Only the parameters the instance sets. A VirtualClusterInstance created with kubectl
+              # carries no template defaults, and an unset value renders as <nil>, which the
+              # Stack rejects. An omitted parameter takes the StackTemplate default instead.
               parameters:
-                argoProject: {{ .Values.argoProject | quote }}
-                chartRepoURL: {{ .Values.chartRepoURL | quote }}
-                chartRevision: {{ .Values.chartRevision | quote }}
-                expectedGPUs: {{ .Values.expectedGPUs | toString | quote }}
-                gpuModel: {{ .Values.gpuModel | quote }}
-                assetID: {{ .Values.assetID | quote }}
-                profile: {{ .Values.profile | quote }}
-                driverPreinstalled: {{ .Values.driverPreinstalled | toString | quote }}
-                stopOnFailure: {{ .Values.stopOnFailure | toString | quote }}
-                runDCGMDiag: {{ .Values.runDCGMDiag | toString | quote }}
-                dcgmDiagLevel: {{ .Values.dcgmDiagLevel | toString | quote }}
-                dcgmExtraTests: {{ .Values.dcgmExtraTests | quote }}
-                failOnSkip: {{ .Values.failOnSkip | toString | quote }}
-                runNCCL: {{ .Values.runNCCL | toString | quote }}
-                ncclMaxBytes: {{ .Values.ncclMaxBytes | quote }}
-                ncclMinBusBandwidthGBps: {{ .Values.ncclMinBusBandwidthGBps | toString | quote }}
-                soakMinutes: {{ .Values.soakMinutes | toString | quote }}
-                soakLoad: {{ .Values.soakLoad | quote }}
-                maxGPUTempC: {{ .Values.maxGPUTempC | toString | quote }}
-                reportS3URI: {{ .Values.reportS3URI | quote }}
-                s3CredentialsSecret: {{ .Values.s3CredentialsSecret | quote }}
-                s3Endpoint: {{ .Values.s3Endpoint | quote }}
-                gpuOperatorVersion: {{ .Values.gpuOperatorVersion | quote }}
-                toolsImage: {{ .Values.toolsImage | quote }}
-                dcgmImage: {{ .Values.dcgmImage | quote }}
-                ncclImage: {{ .Values.ncclImage | quote }}
+              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
+              {{- if not (kindIs "invalid" (index $.Values $k)) }}
+                {{ $k }}: {{ index $.Values $k | toString | quote }}
+              {{- end }}
+              {{- end }}

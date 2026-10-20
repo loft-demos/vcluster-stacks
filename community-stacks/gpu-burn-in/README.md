@@ -19,7 +19,7 @@ these steps in order:
 The Stack reports Healthy only when the server qualified. When it does not, the Stack goes Degraded
 and the message names the failed tests. Either way the report stays readable.
 [automation/record-qualification.sh](automation/record-qualification.sh) then writes the result to
-the server's inventory record: a BareMetalHost label and annotations, and optionally NetBox.
+the server's inventory record: a label and annotations on its Platform Machine or BareMetalHost, and optionally NetBox.
 
 Everything is built from existing vCluster Platform features: private nodes, Stacks, Argo CD and
 Kubernetes Jobs. The tests run public NVIDIA images. The step logic is a small Helm chart in this
@@ -124,11 +124,21 @@ pieces, both outside the Stack.
 not a durable record. [automation/record-qualification.sh](automation/record-qualification.sh)
 reads the report and writes it where the provisioning path looks:
 
-- **BareMetalHost:** label `gpu-qualification.vcluster.com/result=passed|failed`, plus annotations
-  with the profile, time, failed tests, summary and report URI. When the tenant cluster is
-  deleted, the Metal3 provider removes only its own project and NodeClaim labels from the host. The
-  qualification label and annotations survive, even after the host is wiped and returned to
-  `available`.
+- **The label:** `gpu-qualification.example.com/result=passed|failed`, plus annotations with the
+  profile, time, failed tests, summary and report URI. Set `LABEL_DOMAIN` to a domain your
+  organization owns. Never use a `vcluster.com` or `loft.sh` domain: newer Platform builds keep
+  labels in those domains out of NodeType selection, and the script refuses them.
+- **`--machine`, the vCluster Platform Machine:** the preferred target where it works. The Machine
+  is provider-neutral, covering Metal3 and NICo, and lives on the management API, so the
+  automation needs no credentials for the cluster that runs Metal3. NodeType selection merges
+  Machine labels with the host's labels. This needs a Platform build that lets users label
+  Machines. Earlier builds, including 4.13.0-alpha.19, reject every Machine write, so use `--bmh`
+  there.
+- **`--bmh`, the Metal3 BareMetalHost:** works on any build, and the Platform mirrors its labels to
+  the Machine.
+- **Either way the record survives the teardown.** When the tenant cluster is deleted, the Metal3
+  provider removes only its own project and NodeClaim labels. The qualification label and
+  annotations stay, even after the host is wiped and returned to `available`.
 - **NetBox, optionally:**
   - On a failure, the script sets the device status to `failed` and removes the tag that brings
     the device into vCluster Platform.
@@ -147,14 +157,14 @@ nodeTypes:
       selector:
         matchLabels:
           netbox.vcluster.com/device-type: hgx-b300
-          gpu-qualification.vcluster.com/result: passed
+          gpu-qualification.example.com/result: passed
   - name: rack-a-b300-qualification   # qualification: never-tested or failed servers
     bareMetalHosts:
       selector:
         matchLabels:
           netbox.vcluster.com/device-type: hgx-b300
         matchExpressions:
-          - key: gpu-qualification.vcluster.com/result
+          - key: gpu-qualification.example.com/result
             operator: NotIn
             values: [passed]
     properties:
@@ -207,7 +217,7 @@ The lifecycle is:
 | [example/stackinstance.yaml](example/stackinstance.yaml) | StackInstance with an HGX B300 starting profile |
 | [example/stackinstance-nvml-mock.yaml](example/stackinstance-nvml-mock.yaml) | StackInstance for simulated GPUs |
 | [example/virtualclusterinstance-single-gpu.yaml](example/virtualclusterinstance-single-gpu.yaml) | Tenant cluster qualifying one real workstation GPU |
-| [automation/record-qualification.sh](automation/record-qualification.sh) | Writes a report to a BareMetalHost and NetBox |
+| [automation/record-qualification.sh](automation/record-qualification.sh) | Writes a report to a Machine, a BareMetalHost and NetBox |
 | [tests/evaluate-test.sh](tests/evaluate-test.sh) | Unit tests of the pass or fail rules, against [tests/fixtures/](tests/fixtures/) |
 | [tests/nvml-mock-e2e.sh](tests/nvml-mock-e2e.sh) | End-to-end scenarios with injected faults on nvml-mock |
 | [test-manifests.sh](test-manifests.sh) | Static and render checks, then the unit tests |
@@ -497,7 +507,7 @@ exercised:
 
 - Any step on real or simulated GPUs, including the DCGM 4.5 JSON layout the fixtures assume.
 - The `nvml-mock-e2e.sh` scenarios.
-- `record-qualification.sh --apply` against a BareMetalHost and NetBox.
+- `record-qualification.sh --apply` against a Machine, a BareMetalHost and NetBox.
 - The S3 upload.
 
 ## License

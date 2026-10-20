@@ -4,7 +4,8 @@
 # Stack has finished.
 #
 #   record-qualification.sh --tenant-kubeconfig tenant.kubeconfig \
-#     --bmh rack-a-u12 --bmh-namespace metal3-system --metal3-context spark-cluster \
+#     [--machine metal3-dc1.rack-a-u12 [--platform-context vcluster-platform_management]] \
+#     [--bmh rack-a-u12 --bmh-namespace metal3-system --metal3-context spark-cluster] \
 #     [--netbox-device rack-a-u12 --netbox-admit-tag vcluster-platform --netbox-qualified-tag gpu-qualified] \
 #     [--apply]
 #
@@ -14,15 +15,24 @@
 # `vcluster platform connect vcluster <name> --project <project> --print`), or from --report-file,
 # a copy saved with --save-report. Save one before you delete the tenant cluster.
 #
-# BareMetalHost (Metal3): sets label gpu-qualification.vcluster.com/result=passed|failed, and
-# annotations with the profile, time, failed tests, summary and report URI. The Metal3 provider's
-# teardown removes only its own project and NodeClaim labels, so these survive the release of the
-# server. A label alone does not stop allocation: require it in the selector of every production
-# NodeType, for example
+# The label is <domain>/result=passed|failed, with annotations under the same domain for the
+# profile, time, failed tests, summary and report URI. The domain is $LABEL_DOMAIN, by default
+# gpu-qualification.example.com; use one your organization owns. Never a vcluster.com or loft.sh
+# domain: newer Platform builds keep labels in those domains out of NodeType selection.
+#
+# Where it is written:
+#   --machine   the vCluster Platform Machine, on the management API. Provider-neutral (Metal3 and
+#               NICo), and needs no credentials for the cluster that runs Metal3. Needs a Platform
+#               build that lets users label Machines; older builds reject every Machine write.
+#   --bmh       the Metal3 BareMetalHost, on the cluster that runs Metal3. Works on any build. The
+#               Platform mirrors these labels to the Machine.
+# Both survive the release of the server: the Metal3 provider's teardown removes only its own
+# project and NodeClaim labels. A label alone does not stop allocation: require it in the
+# selector of every production NodeType, for example
 #     bareMetalHosts:
 #       selector:
 #         matchLabels:
-#           gpu-qualification.vcluster.com/result: passed
+#           gpu-qualification.example.com/result: passed
 # and give the qualification NodeType a selector that excludes passed hosts.
 #
 # NetBox (optional, NETBOX_URL and NETBOX_TOKEN in the environment): on a failure, sets the device
@@ -35,6 +45,7 @@ set -euo pipefail
 usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;/^set -euo/d'; exit "${1:-0}"; }
 
 tenant_kubeconfig="" report_file="" save_report=""
+machine="" platform_context=""
 bmh="" bmh_namespace="metal3-system" metal3_context=""
 nb_device="" nb_admit_tag="" nb_qualified_tag="" apply=false
 while [[ $# -gt 0 ]]; do
@@ -42,6 +53,8 @@ while [[ $# -gt 0 ]]; do
     --tenant-kubeconfig) tenant_kubeconfig=$2; shift 2 ;;
     --report-file) report_file=$2; shift 2 ;;
     --save-report) save_report=$2; shift 2 ;;
+    --machine) machine=$2; shift 2 ;;
+    --platform-context) platform_context=$2; shift 2 ;;
     --bmh) bmh=$2; shift 2 ;;
     --bmh-namespace) bmh_namespace=$2; shift 2 ;;
     --metal3-context) metal3_context=$2; shift 2 ;;
@@ -53,6 +66,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "unknown argument: $1" >&2; usage 1 ;;
   esac
 done
+domain=${LABEL_DOMAIN:-gpu-qualification.example.com}
+case $domain in
+  vcluster.com|*.vcluster.com|loft.sh|*.loft.sh)
+    echo "LABEL_DOMAIN $domain: NodeType selection ignores labels in vcluster.com and loft.sh domains" >&2; exit 1 ;;
+esac
 for tool in kubectl jq; do command -v "$tool" >/dev/null || { echo "missing $tool" >&2; exit 2; }; done
 
 run() {
@@ -85,19 +103,31 @@ echo "report: $result on $host (asset $(jq -r '.assetID // "unset"' "$tmp/report
 echo "  $summary"
 case $result in passed|failed) ;; *) echo "unexpected result '$result'" >&2; exit 1 ;; esac
 
-# --- BareMetalHost ------------------------------------------------------------------------------
+# --- Machine and BareMetalHost ------------------------------------------------------------------
+# record KUBECTL_ARGS... RESOURCE NAME: the label, then the annotations.
+record() {
+  local name=${*: -1} resource=${*: -2:1}
+  local k=("${@:1:$#-2}")
+  run "${k[@]}" label "$resource" "$name" --overwrite "$domain/result=$result"
+  # Annotation values are free text; keep the summary short enough to read in kubectl describe.
+  run "${k[@]}" annotate "$resource" "$name" --overwrite \
+    "$domain/profile=$profile" \
+    "$domain/finished-at=$finished" \
+    "$domain/failed-tests=$failed" \
+    "$domain/summary=${summary:0:1000}" \
+    "$domain/report=$uri"
+}
+if [[ -n "$machine" ]]; then
+  k=(kubectl)
+  [[ -z "$platform_context" ]] || k=(kubectl --context "$platform_context")
+  "${k[@]}" get machines.management.loft.sh "$machine" >/dev/null
+  record "${k[@]}" machines.management.loft.sh "$machine"
+fi
 if [[ -n "$bmh" ]]; then
   k=(kubectl -n "$bmh_namespace")
   [[ -z "$metal3_context" ]] || k=(kubectl --context "$metal3_context" -n "$bmh_namespace")
   "${k[@]}" get baremetalhost "$bmh" >/dev/null
-  run "${k[@]}" label baremetalhost "$bmh" --overwrite "gpu-qualification.vcluster.com/result=$result"
-  # Annotation values are free text; keep the summary short enough to read in kubectl describe.
-  run "${k[@]}" annotate baremetalhost "$bmh" --overwrite \
-    "gpu-qualification.vcluster.com/profile=$profile" \
-    "gpu-qualification.vcluster.com/finished-at=$finished" \
-    "gpu-qualification.vcluster.com/failed-tests=$failed" \
-    "gpu-qualification.vcluster.com/summary=${summary:0:1000}" \
-    "gpu-qualification.vcluster.com/report=$uri"
+  record "${k[@]}" baremetalhost "$bmh"
 fi
 
 # --- NetBox -------------------------------------------------------------------------------------

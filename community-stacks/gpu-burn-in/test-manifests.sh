@@ -462,7 +462,8 @@ check_refs("virtualclustertemplate.yaml", vct["spec"]["template"], vct_params)
 for stack_var, p in stack_params.items():
     if stack_var in vct_params and "defaultValue" in p and str(p["defaultValue"]) != str(vct_params[stack_var].get("defaultValue")):
         fail(f"virtualclustertemplate.yaml: default {stack_var}={vct_params[stack_var].get('defaultValue')!r} disagrees with the StackTemplate's {p['defaultValue']!r}")
-values = {**defaults(vct_params), "argoConnector": "argocd", "gpuNodeProvider": "metal3"}
+# As the UI form submits it: every parameter, empty when it has no default.
+values = {**{v: "" for v in vct_params}, **defaults(vct_params), "argoConnector": "argocd", "gpuNodeProvider": "metal3"}
 t = render(vct["spec"]["template"], values, "virtualclustertemplate.yaml")
 if t:
     try:
@@ -484,6 +485,15 @@ if t:
         for p in stack_params:
             if p not in passed:
                 fail(f"virtualclustertemplate.yaml: does not pass Stack parameter {p!r}; the tenant form cannot set it")
+# A VirtualClusterInstance created with kubectl carries only the parameters it sets, with no template
+# defaults. Unset Stack parameters must be left out, not rendered as <nil>.
+sparse = {"argoConnector": "argocd", "gpuNodeProvider": "metal3", "nodeTypeProperty": "vcluster.com/profile",
+          "nodeTypeValue": "xlarge-gpu", "runNCCL": "false"}
+t = render(vct["spec"]["template"], sparse, "virtualclustertemplate.yaml (kubectl instance)")
+if t:
+    passed = yaml.safe_load(t["helmRelease"]["values"])["deploy"]["stacks"][0].get("parameters") or {}
+    if passed != {"runNCCL": "false"}:
+        fail(f"virtualclustertemplate.yaml: with only runNCCL set, passes {passed}; unset parameters must be omitted so the Stack defaults apply")
 
 # --- Examples -----------------------------------------------------------------------------------
 for path in sorted((root / "example").glob("*.yaml")):
