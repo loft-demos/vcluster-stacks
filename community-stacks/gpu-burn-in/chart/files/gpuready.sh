@@ -45,8 +45,9 @@ echo "$nodes" >>"$WORK/log.txt"
 if [ "$(echo "$nodes" | grep -c .)" -gt 1 ]; then
   log "more than one GPU node; this Stack qualifies one server per tenant cluster" | tee -a "$WORK/log.txt"
 fi
+# The same metrics contract as the GPU tests (evaluate.sh), so reports carry allocatable_gpus.
 jq -n --argjson count "$count" --arg node "$node" --argjson expected "$EXPECTED_GPUS" \
-  '{allocatable: $count, expected: $expected, node: $node}' >"$WORK/details.json"
+  '{allocatable: $count, expected: $expected, node: $node, metrics: {allocatable_gpus: $count}}' >"$WORK/details.json"
 
 if [ "$count" -gt 0 ]; then
   write_result passed "$count allocatable nvidia.com/gpu on $node" "$WORK/details.json" \
