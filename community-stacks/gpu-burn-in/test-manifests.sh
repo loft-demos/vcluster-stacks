@@ -554,6 +554,67 @@ CHECKS
 sh "$root/tests/evaluate-test.sh" >"$work/evaluate.log" || { cat "$work/evaluate.log"; status=1; }
 tail -n 1 "$work/evaluate.log"
 
+# record-qualification.sh --create-report builds a QualificationReport the CRD accepts. Offline: with
+# no cluster, the existence check fails and the dry run prints the report.
+KUBECONFIG=/dev/null "$root/automation/record-qualification.sh" --report-file "$root/tests/reports/nvml-mock-ecc.json" \
+  --create-report --report-machine metal3-dc1.rack-b-u18 >"$work/script.out" 2>&1 ||
+  { cat "$work/script.out"; echo "FAIL record-qualification.sh --create-report" >&2; status=1; }
+sed -n '/^would create QualificationReport/,/^}/p' "$work/script.out" | sed '1d' >"$work/qr.json"
+python3 - "$root/recorder/chart/crds/qualificationreports.yaml" "$work/qr.json" <<'SCHEMA' || status=1
+import json, sys
+import yaml
+
+crd = yaml.safe_load(open(sys.argv[1]))
+schema = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+try:
+    obj = json.load(open(sys.argv[2]))
+except ValueError as e:
+    sys.exit(f"FAIL record-qualification.sh --create-report printed no report: {e}")
+errors = []
+
+def check(node, sch, path):
+    t = sch.get("type")
+    if t == "object":
+        if not isinstance(node, dict):
+            return errors.append(f"{path}: not an object")
+        for r in sch.get("required", []):
+            if r not in node:
+                errors.append(f"{path}: missing {r}")
+        props, extra = sch.get("properties"), sch.get("additionalProperties")
+        for k, v in node.items():
+            if props is not None and k in props:
+                check(v, props[k], f"{path}.{k}")
+            elif isinstance(extra, dict):
+                check(v, extra, f"{path}.{k}")
+            elif props is not None and path != "":
+                errors.append(f"{path}: unknown field {k}")
+    elif t == "array":
+        if not isinstance(node, list):
+            return errors.append(f"{path}: not an array")
+        for i, v in enumerate(node):
+            check(v, sch.get("items", {}), f"{path}[{i}]")
+    elif t == "string":
+        if not isinstance(node, str):
+            errors.append(f"{path}: not a string")
+        elif "enum" in sch and node not in sch["enum"]:
+            errors.append(f"{path}: {node!r} not in {sch['enum']}")
+        elif sch.get("format") == "date-time" and not node:
+            errors.append(f"{path}: empty date-time")
+    elif t == "integer" and not isinstance(node, int):
+        errors.append(f"{path}: not an integer")
+    elif t == "number" and not isinstance(node, (int, float)):
+        errors.append(f"{path}: not a number")
+
+check(obj["spec"], schema["properties"]["spec"], "spec")
+if obj["spec"]["machineRef"] != "metal3-dc1.rack-b-u18" or obj["spec"]["source"]["kind"] != "Stack":
+    errors.append("machineRef or source.kind wrong")
+if obj["metadata"]["labels"].get("qualification.vcluster-stacks.io/machine") != "metal3-dc1.rack-b-u18":
+    errors.append("machine label wrong")
+for e in errors:
+    print(f"FAIL record-qualification.sh QualificationReport {e}", file=sys.stderr)
+sys.exit(1 if errors else 0)
+SCHEMA
+
 # The recorder controller and its chart.
 helm lint --quiet "$root/recorder/chart" >/dev/null || { helm lint "$root/recorder/chart"; status=1; }
 for args in "" "--set target=bmh --set localCluster=loft-cluster --set clusterKubeconfigs.existingSecret=c --set netbox.tokenSecret.name=n"; do

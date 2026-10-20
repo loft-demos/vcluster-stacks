@@ -7,6 +7,8 @@
 #     [--machine metal3-dc1.rack-a-u12 [--platform-context vcluster-platform_management]] \
 #     [--bmh rack-a-u12 --bmh-namespace metal3-system --metal3-context spark-cluster] \
 #     [--netbox-device rack-a-u12 --netbox-admit-tag vcluster-platform --netbox-qualified-tag gpu-qualified] \
+#     [--create-report [--report-machine metal3-dc1.rack-a-u12 | --provider metal3-dc1] \
+#       [--report-context vcluster-platform_loft-cluster]] \
 #     [--apply]
 #
 # Without --apply it prints what it would change and changes nothing.
@@ -35,6 +37,13 @@
 #           gpu-qualification.example.com/result: passed
 # and give the qualification NodeType a selector that excludes passed hosts.
 #
+# QualificationReport (optional, --create-report): the same provider-neutral record of the run that
+# the gpu-burn-in-recorder controller writes, so a run recorded by hand still shows in the history
+# and on dashboards. It names the Platform Machine: --report-machine, --machine, or
+# <--provider>.<--bmh>. --report-machine alone records only the report, with no label. It is created
+# on the cluster that runs vCluster Platform (--report-context, default the current context), where
+# the CRD from recorder/chart/crds/ must be installed. The script does not prune old reports.
+#
 # NetBox (optional, NETBOX_URL and NETBOX_TOKEN in the environment): on a failure, sets the device
 # status to failed and removes --netbox-admit-tag, the tag that brings the device into vCluster
 # Platform. On a pass, adds --netbox-qualified-tag if given. Either way it adds a journal entry
@@ -48,6 +57,7 @@ tenant_kubeconfig="" report_file="" save_report=""
 machine="" platform_context=""
 bmh="" bmh_namespace="metal3-system" metal3_context=""
 nb_device="" nb_admit_tag="" nb_qualified_tag="" apply=false
+create_report=false provider="" report_context="" report_machine=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --tenant-kubeconfig) tenant_kubeconfig=$2; shift 2 ;;
@@ -61,6 +71,10 @@ while [[ $# -gt 0 ]]; do
     --netbox-device) nb_device=$2; shift 2 ;;
     --netbox-admit-tag) nb_admit_tag=$2; shift 2 ;;
     --netbox-qualified-tag) nb_qualified_tag=$2; shift 2 ;;
+    --create-report) create_report=true; shift ;;
+    --provider) provider=$2; shift 2 ;;
+    --report-machine) report_machine=$2; shift 2 ;;
+    --report-context) report_context=$2; shift 2 ;;
     --apply) apply=true; shift ;;
     -h|--help) usage 0 ;;
     *) echo "unknown argument: $1" >&2; usage 1 ;;
@@ -102,6 +116,54 @@ host=$(jq -r .host.name "$tmp/report.json")
 echo "report: $result on $host (asset $(jq -r '.assetID // "unset"' "$tmp/report.json"), profile $profile)"
 echo "  $summary"
 case $result in passed|failed) ;; *) echo "unexpected result '$result'" >&2; exit 1 ;; esac
+
+# --- QualificationReport ------------------------------------------------------------------------
+# First, as the controller does: the report is the history.
+if $create_report; then
+  [[ -n "$report_machine" ]] || report_machine=$machine
+  if [[ -z "$report_machine" ]]; then
+    [[ -n "$provider" && -n "$bmh" ]] || { echo "--create-report needs --report-machine, --machine, or --provider with --bmh" >&2; exit 1; }
+    report_machine=$provider.$bmh
+  fi
+  [[ -n "$provider" ]] || provider=${report_machine%%.*}
+  # Stable per report: recording the same report twice creates it once.
+  digest=$( (sha256sum 2>/dev/null || shasum -a 256) <"$tmp/report.json" | cut -c1-8)
+  jq --arg machine "$report_machine" --arg provider "$provider" --arg digest "$digest" '
+    def tolabel: gsub("[^A-Za-z0-9._-]+"; "-") | ltrimstr("-") | rtrimstr("-") | .[0:63];
+    def nonempty: with_entries(select(.value != null and .value != ""));
+    ([.tests[]?.finishedAt | select(. != null and . != "")] | max) as $finished |
+    {apiVersion: "qualification.vcluster-stacks.io/v1alpha1", kind: "QualificationReport",
+     metadata: {
+       name: (($machine | ascii_downcase) + "-" + $digest),
+       labels: {"qualification.vcluster-stacks.io/machine": ($machine | tolabel),
+                "qualification.vcluster-stacks.io/result": .result,
+                "qualification.vcluster-stacks.io/provider": ($provider | tolabel),
+                "qualification.vcluster-stacks.io/profile": ((.profile // "") | tolabel),
+                "qualification.vcluster-stacks.io/source-kind": "Stack"}},
+     spec: ({machineRef: $machine, providerRef: $provider, assetID: .assetID,
+             source: {kind: "Stack", name: "record-qualification.sh"},
+             profile: .profile, result: .result, failedTests: (.failedTests // []), summary: .summary,
+             startedAt: .startedAt, finishedAt: $finished, reportURI: .reportURI,
+             hardware: ({node: .host.name, gpuCount: .detectedGPUs, expectedGPUs: .expectedGPUs,
+                         gpuModel: ([.gpus[]?.name] | unique | join(",")),
+                         driver: ([.gpus[]?.driver | select(. != null and . != "")][0]),
+                         gpus: [.gpus[]? | {index, uuid, name, serial}],
+                         dmi: (.host.dmi // {})} | nonempty),
+             tests: [.tests[]? | {name: .test, status, summary, startedAt, finishedAt}
+                     + (if (.metrics // {}) == {} then {} else {metrics} end) | nonempty]}
+            | nonempty)}' "$tmp/report.json" >"$tmp/qualificationreport.json"
+  k=(kubectl)
+  [[ -z "$report_context" ]] || k=(kubectl --context "$report_context")
+  name=$(jq -r .metadata.name "$tmp/qualificationreport.json")
+  if "${k[@]}" get qualificationreports.qualification.vcluster-stacks.io "$name" >/dev/null 2>&1; then
+    echo "QualificationReport $name already exists"
+  elif $apply; then
+    "${k[@]}" create -f "$tmp/qualificationreport.json"
+  else
+    echo "would create QualificationReport $name:"
+    jq . "$tmp/qualificationreport.json"
+  fi
+fi
 
 # --- Machine and BareMetalHost ------------------------------------------------------------------
 # record KUBECTL_ARGS... RESOURCE NAME: the label, then the annotations.

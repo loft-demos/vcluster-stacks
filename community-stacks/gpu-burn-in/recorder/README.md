@@ -6,7 +6,9 @@ the server's inventory record, and NodeType selectors can use that label to keep
 away from customers.
 
 It replaces running [record-qualification.sh](../automation/record-qualification.sh) by hand after
-each qualification.
+each qualification. Both are optional, and `record-qualification.sh --create-report` writes the same
+QualificationReport, so hand-recorded runs appear in the same history and metrics. See the
+[comparison](../README.md#qualify-and-quarantine-servers).
 
 ## Contents
 
@@ -63,7 +65,8 @@ Every recorded run also becomes a `QualificationReport`
 of one machine, kept beside the vCluster Platform Machine it names. The CRD is in
 [chart/crds/](chart/crds/qualificationreports.yaml).
 
-The report doesn't depend on how the tests ran. The gpu-burn-in Stack fills it through this
+`record-qualification.sh --create-report` writes the same report for a run recorded by hand, with
+`source.name: record-qualification.sh`. The report doesn't depend on how the tests ran. The gpu-burn-in Stack fills it through this
 controller, and NICo Machine Validation or another test suite could fill the same fields with no
 tenant cluster at all. That makes it the one source for dashboards, gating and reporting across
 providers.

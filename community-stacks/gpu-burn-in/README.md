@@ -148,6 +148,24 @@ ways to write it there:
 - **[automation/record-qualification.sh](automation/record-qualification.sh)**, run by hand per
   qualification. It is a dry run unless you pass `--apply`.
 
+Both are optional; the Stack runs and reports without either. They differ in what they automate:
+
+| | Stack alone | `record-qualification.sh` | Recorder controller |
+| --- | --- | --- | --- |
+| Runs the tests and writes the report (tenant ConfigMap, Stack outputs, optional S3) | Yes | Yes | Yes |
+| Label and annotations on the BareMetalHost or Machine | No | Yes, by hand, per run | Yes, automatically |
+| NetBox | No | `--netbox-device` | With `netboxUpdate` |
+| QualificationReport, so the run shows in history and on dashboards | No | With `--create-report` | Yes |
+| Deletes the tenant cluster | No | No | With `releaseServer` |
+| Finds the server | No | You name it | From the NodeClaim |
+
+With the script, record the run before you delete the tenant cluster, because it reads the report
+there, or save the report first with `--save-report` and record from that file later.
+`recordResult`, `netboxUpdate` and `releaseServer` only affect the controller. Don't use both on
+the same run: they mark the run differently, so the controller records a run the script already
+recorded. The label would be the same, but NetBox gets a second journal entry and the history a
+second report.
+
 Both write the same record:
 
 - **The label:** `gpu-qualification.example.com/result=passed|failed`, plus annotations with the
@@ -204,8 +222,8 @@ The lifecycle is:
 2. Create a tenant cluster from **GPU Burn-In - Private Node** with `nodeTypeValue:
    b300-qualification`.
 3. The recorder writes the result when the report is captured. With `releaseServer: true` it then
-   deletes the tenant cluster. Without the recorder, run `record-qualification.sh --apply` and
-   delete the tenant cluster yourself.
+   deletes the tenant cluster. Without the recorder, run `record-qualification.sh --create-report
+   --apply` and delete the tenant cluster yourself.
 4. The server is wiped and becomes `available`.
 5. A passed server is now visible to production NodeTypes. A failed one stays out until it is
    repaired and passes again.
@@ -265,7 +283,7 @@ troubleshooting.
 | [example/stackinstance-nvml-mock.yaml](example/stackinstance-nvml-mock.yaml) | StackInstance for simulated GPUs |
 | [example/virtualclusterinstance-single-gpu.yaml](example/virtualclusterinstance-single-gpu.yaml) | Tenant cluster qualifying one real workstation GPU |
 | [recorder/](recorder/) | The recorder controller (Go) and its Helm chart, [recorder/chart/](recorder/chart/) |
-| [automation/record-qualification.sh](automation/record-qualification.sh) | Writes a report to a Machine, a BareMetalHost and NetBox |
+| [automation/record-qualification.sh](automation/record-qualification.sh) | Records a run by hand: a Machine or BareMetalHost label, NetBox, and a QualificationReport |
 | [tests/evaluate-test.sh](tests/evaluate-test.sh) | Unit tests of the pass or fail rules, against [tests/fixtures/](tests/fixtures/) |
 | [tests/nvml-mock-e2e.sh](tests/nvml-mock-e2e.sh) | End-to-end scenarios with injected faults on nvml-mock |
 | [test-manifests.sh](test-manifests.sh) | Static and render checks, then the unit tests |
@@ -567,6 +585,9 @@ the chart with the resulting Helm values. They assert:
   with the NVIDIA runtime class instead of a device plugin request, and Jobs are replaced, not
   updated, when their spec changes. `verdict` receives the report's outputs.
 - The tenant cluster template claims exactly one server and passes every Stack parameter.
+
+They check that `record-qualification.sh --create-report` builds a QualificationReport that matches
+the CRD schema, from [tests/reports/](tests/reports/).
 
 They then run [tests/evaluate-test.sh](tests/evaluate-test.sh). It runs the pass or fail rules
 against fixtures for each test and failure mode, and the report against combinations of results.
