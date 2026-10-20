@@ -96,16 +96,22 @@ The NVIDIA images have no `kubectl` or `jq`, and the tools image has no NVIDIA t
 work between `run` and `publish` keeps the judging in one tested script and the NVIDIA images
 unmodified.
 
-### GPU requests
+### GPU access
 
-The GPU tests request the GPUs that `gpuready` observed, which the Stack passes as
-`{{ .Outputs.gpuready.gpus }}`, not `expectedGPUs`. Suppose a server has a GPU that fell off the bus,
-so the device plugin advertises 7 GPUs. A pod requesting 8 would stay Pending until the task timed
-out, and there would be no report. Instead the tests run on 7, `inventory` fails with `7 of 8
-GPUs`, and the report says why.
+The GPU tests don't request `nvidia.com/gpu` from the device plugin. They run with
+`runtimeClassName: nvidia` and `NVIDIA_VISIBLE_DEVICES=all`, so they see every GPU the driver does.
+The GPU Operator's own validator pods get their GPUs the same way. The tenant cluster has the server
+to itself, so nothing else competes for the GPUs.
 
-The tenant cluster has the server to itself, so the tests take every advertised GPU and run one at
-a time.
+A request would break exactly when qualification matters most. When a GPU throws an XID or an
+uncorrectable ECC error, the device plugin marks it unhealthy, and the node advertises 7 GPUs
+instead of 8. A pod requesting 8 then stays Pending until its task times out, and no report is
+written. Instead, the tests keep running, and `inventory` compares the GPUs `nvidia-smi` sees with
+the GPUs the device plugin still advertises, failing with `device plugin advertises 7 of 8 GPUs:
+one is unhealthy`. This was found on nvml-mock with an injected Xid 48.
+
+`gpuready` still waits for the device plugin to advertise GPUs, which proves the driver, toolkit
+and device plugin work. The count it saw is in its result and in the `gpus` output.
 
 ### DCGM and burn-in telemetry
 
@@ -551,9 +557,10 @@ the chart with the resulting Helm values. They assert:
   soak.
 - Outputs come from the `gpu-burn-in` namespace, from keys the steps write. Every `.Outputs`
   reference reads a declared output of a dependency.
-- Each step renders exactly one Job that runs once. GPU tests request the `gpuready` count rather
-  than `expectedGPUs`. Disabled tests start no NVIDIA container. DCGM and dcgm-exporter follow
-  `telemetry`, and the DCGM steps use the shared host engine exactly when they run. `verdict` receives the report's outputs.
+- Each step renders exactly one Job that runs once. Disabled tests start no NVIDIA container. DCGM and dcgm-exporter follow
+  `telemetry`, and the DCGM steps use the shared host engine exactly when they run. GPU tests run
+  with the NVIDIA runtime class instead of a device plugin request, and Jobs are replaced, not
+  updated, when their spec changes. `verdict` receives the report's outputs.
 - The tenant cluster template claims exactly one server and passes every Stack parameter.
 
 They then run [tests/evaluate-test.sh](tests/evaluate-test.sh). It runs the pass or fail rules

@@ -4,6 +4,10 @@
 set -eu
 . /scripts/lib.sh
 
+# What the device plugin advertises now. inventory compares it with the GPUs the driver sees: a GPU
+# the device plugin has marked unhealthy since gpuready still shows in nvidia-smi.
+kubectl get node "$NODE_NAME" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' >"$WORK/allocatable" 2>/dev/null || true
+
 [ "$STOP_ON_FAILURE" = "true" ] || exit 0
 failed=$(kubectl get configmaps -l "$RESULT_LABEL=true" -o json |
   jq -r --arg self "$TEST" '[.items[].data | select(.test != $self and (.status == "failed" or .status == "error")) | .test] | join(",")')

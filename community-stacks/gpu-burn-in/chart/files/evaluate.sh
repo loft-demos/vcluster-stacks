@@ -76,7 +76,9 @@ evaluate_inventory() {
   inactive=$(grep -ci inactive "$WORK/nvlink.txt" 2>/dev/null || true)
   dmi=$(jq -R -s '[split("\n")[] | select(contains("=")) | capture("^(?<k>[^=]+)=(?<v>.*)$")] | map({(.k): .v}) | add // {}' "$WORK/dmi.txt" 2>/dev/null || echo '{}')
   details=$(jq -n --argjson gpus "$gpus" --argjson dmi "$dmi" --argjson inactive "${inactive:-0}" \
-    '{gpuCount: ($gpus | length), gpus: $gpus, dmi: $dmi, inactiveNVLinks: $inactive}')
+    --arg allocatable "$(cat "$WORK/allocatable" 2>/dev/null || true)" \
+    '{gpuCount: ($gpus | length), gpus: $gpus, dmi: $dmi, inactiveNVLinks: $inactive,
+      allocatable: ($allocatable | tonumber? // null)}')
 
   problems=""
   [ "$count" -eq "$EXPECTED_GPUS" ] || problems="$count of $EXPECTED_GPUS GPUs"
@@ -87,6 +89,10 @@ evaluate_inventory() {
   ecc=$(echo "$gpus" | jq -r '[.[] | select((.uncorrectedECC // 0) > 0) | "GPU \(.index)=\(.uncorrectedECC)"] | join(",")')
   [ -z "$ecc" ] || problems="${problems}${problems:+; }uncorrected ECC errors: $ecc"
   [ "${inactive:-0}" -eq 0 ] || problems="${problems}${problems:+; }$inactive inactive NVLink links"
+  allocatable=$(cat "$WORK/allocatable" 2>/dev/null || true)
+  if [ -n "$allocatable" ] && [ "$allocatable" -lt "$count" ]; then
+    problems="${problems}${problems:+; }device plugin advertises $allocatable of $count GPUs: one is unhealthy"
+  fi
 
   model=$(echo "$gpus" | jq -r '[.[].name] | unique | join(",")')
   if [ -n "$problems" ]; then

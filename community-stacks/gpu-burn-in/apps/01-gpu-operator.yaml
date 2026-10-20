@@ -61,9 +61,12 @@ spec:
             operator:
               defaultRuntime: containerd
             driver:
-              enabled: {{ if eq (.Values.driverPreinstalled | toString) "true" }}false{{ else }}true{{ end }}
+              enabled: {{ if or (eq (.Values.driverPreinstalled | toString) "true") (eq (.Values.nvmlMock | toString) "true") }}false{{ else }}true{{ end }}
+            # nvml-mock is the driver and the container toolkit. With the operator's toolkit on, the
+            # device plugin writes CDI specs that call its nvidia-cdi-hook, which is not installed on
+            # a node that skips the toolkit, and every GPU container fails to start.
             toolkit:
-              enabled: true
+              enabled: {{ if eq (.Values.nvmlMock | toString) "true" }}false{{ else }}true{{ end }}
             devicePlugin:
               enabled: true
             cdi:

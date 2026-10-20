@@ -383,9 +383,11 @@ for variant, overrides in VARIANTS.items():
         if not spec_r or ref != TEST_APP:
             if spec_r and ref == f"{PREFIX}-gpu-operator":
                 hv = yaml.safe_load(spec_r["spec"]["source"]["helm"]["values"])
-                if hv["driver"]["enabled"] is (values["driverPreinstalled"] == "true"):
+                if hv["driver"]["enabled"] is (values["driverPreinstalled"] == "true" or values["nvmlMock"] == "true"):
                     fail(f"{where}: driver.enabled={hv['driver']['enabled']} with driverPreinstalled={values['driverPreinstalled']}")
                 mock_env = (hv.get("validator") or {}).get("driver", {}).get("env") or []
+                if hv["toolkit"]["enabled"] is (values["nvmlMock"] == "true"):
+                    fail(f"{where}: toolkit.enabled={hv['toolkit']['enabled']} with nvmlMock={values['nvmlMock']}; nvml-mock nodes have no operator toolkit for the CDI hook")
                 if any(e.get("name") == "DISABLE_DEV_CHAR_SYMLINK_CREATION" for e in mock_env) is not (values["nvmlMock"] == "true"):
                     fail(f"{where}: the nvml-mock validator settings must follow nvmlMock={values['nvmlMock']}")
                 want = values["telemetry"] != "false"
@@ -421,9 +423,14 @@ for variant, overrides in VARIANTS.items():
             if [c["name"] for c in inits] != ["gate", "run"] or not run:
                 fail(f"{where}: expected init containers gate and run")
                 continue
-            limit = str((run.get("resources") or {}).get("limits", {}).get("nvidia.com/gpu"))
-            if limit != GPUS_SEEN:
-                fail(f"{where}: requests {limit} GPUs; it must request what gpuready observed ({GPUS_SEEN}), not expectedGPUs")
+            # A device plugin request would leave the pod Pending once a GPU turns unhealthy mid-run.
+            if (run.get("resources") or {}).get("limits", {}).get("nvidia.com/gpu"):
+                fail(f"{where}: requests nvidia.com/gpu; GPU tests must take every GPU through the NVIDIA runtime")
+            run_env = {e["name"]: e.get("value") for e in run["env"]}
+            if pod.get("runtimeClassName") != "nvidia" or run_env.get("NVIDIA_VISIBLE_DEVICES") != "all":
+                fail(f"{where}: GPU tests must run with runtimeClassName nvidia and NVIDIA_VISIBLE_DEVICES=all")
+            if job["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-options") != "Replace=true":
+                fail(f"{where}: the Job needs sync-options Replace=true; a changed Job spec cannot be updated in place")
             if not any(t.get("key") == "nvidia.com/gpu" for t in pod.get("tolerations") or []):
                 fail(f"{where}: does not tolerate the GPU taint")
             budget = int({e["name"]: e.get("value") for e in run["env"]}["RUN_TIMEOUT_SECONDS"])

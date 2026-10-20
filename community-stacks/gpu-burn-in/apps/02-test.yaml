@@ -54,6 +54,11 @@ spec:
       description: Supplied by the gpuready task's outputs inside the gpu-burn-in Stack.
       type: number
       defaultValue: '1'
+    - variable: runtimeClassName
+      label: NVIDIA Runtime Class
+      description: RuntimeClass GPU tests run with, so they see every GPU the driver does.
+      type: string
+      defaultValue: nvidia
     - variable: gpuModel
       label: GPU Model
       type: string
@@ -165,6 +170,7 @@ spec:
             enabled: {{ .Values.enabled | toString | quote }}
             expectedGPUs: {{ .Values.expectedGPUs | toString | quote }}
             gpus: {{ .Values.gpus | toString | quote }}
+            runtimeClassName: {{ .Values.runtimeClassName | quote }}
             gpuModel: {{ .Values.gpuModel | quote }}
             assetID: {{ .Values.assetID | quote }}
             profile: {{ .Values.profile | quote }}

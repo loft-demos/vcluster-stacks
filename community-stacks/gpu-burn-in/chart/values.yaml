@@ -7,11 +7,11 @@ test: inventory
 # "false" records the step as disabled without running it. GPU tests only.
 enabled: "true"
 
-# GPUs the server must have, and GPUs each GPU test requests. The Stack passes the count the
-# gpuready step observed as `gpus`, so a server with a missing GPU still runs and fails its tests
-# instead of leaving a pod Pending.
+# GPUs the server must have. `gpus` is what the device plugin advertised when gpuready passed; GPU
+# tests see every GPU the driver does, through the NVIDIA runtime class.
 expectedGPUs: "8"
 gpus: "1"
+runtimeClassName: nvidia
 # Case-insensitive substring every GPU name must contain, for example B300. Empty skips the check.
 gpuModel: ""
 
