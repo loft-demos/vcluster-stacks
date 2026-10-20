@@ -22,6 +22,7 @@ on:
       - 'community-stacks/openclaw/**'
       - 'community-stacks/metered-inference/**'
       - 'community-stacks/nvidia-gpu-operator/**'
+      - 'community-stacks/gpu-burn-in/**'
       - '.github/workflows/validate.yml'
   pull_request:
     branches: [main]
@@ -32,6 +33,7 @@ on:
       - 'community-stacks/openclaw/**'
       - 'community-stacks/metered-inference/**'
       - 'community-stacks/nvidia-gpu-operator/**'
+      - 'community-stacks/gpu-burn-in/**'
       - '.github/workflows/validate.yml'
 
 permissions:
@@ -72,7 +74,7 @@ jobs:
       - name: Set up manifest validation prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ripgrep python3-yaml
+          sudo apt-get install --yes ripgrep python3-yaml jq
       - name: Render Run:ai manifests
         run: ./certified-stacks/run-ai/render.sh --check
       - name: Check NVIDIA Dynamo manifests
@@ -85,6 +87,8 @@ jobs:
         run: ./community-stacks/metered-inference/test-manifests.sh
       - name: Check NVIDIA GPU Operator manifests
         run: ./community-stacks/nvidia-gpu-operator/test-manifests.sh
+      - name: Check GPU burn-in manifests
+        run: ./community-stacks/gpu-burn-in/test-manifests.sh
       - name: Start vCluster Platform
         env:
           # Fail inside the job's timeout so the diagnostics step below can run. Default is 10m.
@@ -140,6 +144,7 @@ jobs:
             community-stacks/openclaw
             community-stacks/metered-inference
             community-stacks/nvidia-gpu-operator
+            community-stacks/gpu-burn-in
           )
           # NUL-separated *.yaml/*.yml files under $1 whose top-level documents are Platform
           # objects (apiVersion <group>.loft.sh/...). Supporting plain Kubernetes manifests, such
