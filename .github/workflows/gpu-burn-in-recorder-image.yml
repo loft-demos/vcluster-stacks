@@ -20,19 +20,23 @@ on:
     tags: ['gpu-burn-in-recorder-v*']
     paths:
       - 'community-stacks/gpu-burn-in/recorder/**'
+      - '!community-stacks/gpu-burn-in/recorder/**/*.md'
       - '.github/workflows/gpu-burn-in-recorder-image.yml'
   pull_request:
     branches: [main]
     paths:
       - 'community-stacks/gpu-burn-in/recorder/**'
+      - '!community-stacks/gpu-burn-in/recorder/**/*.md'
       - '.github/workflows/gpu-burn-in-recorder-image.yml'
 
 permissions:
   contents: read
 
+# A newer push queues behind a running build rather than cancelling it, so every pushed commit
+# that changes the recorder gets its image. Only superseded pull request builds are cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   image:
