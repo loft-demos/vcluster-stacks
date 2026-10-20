@@ -3,9 +3,12 @@ package qualify
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -107,36 +110,184 @@ func TestPrunesOldReports(t *testing.T) {
 	}
 }
 
+var testTopology, _ = ParseTopology(DefaultTopology)
+
 func TestReportMetrics(t *testing.T) {
-	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(fixture{result: "failed"}.objects()...).Build()
-	reconcile(t, newReconciler(c, TargetMachine))
+	objs := fixture{result: "failed"}.objects()
+	for _, o := range objs {
+		if u, ok := o.(*unstructured.Unstructured); ok && u.GroupVersionKind() == storageMachine {
+			u.SetLabels(map[string]string{"netbox.vcluster.com/site": "dc1", "netbox.vcluster.com/rack": "rack-c"})
+			a := u.GetAnnotations()
+			a[netboxDeviceURLAnnotation] = "https://netbox.example/dcim/devices/10/"
+			u.SetAnnotations(a)
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
+	r := newReconciler(c, TargetMachine)
+	r.Config.Topology = testTopology
+	reconcile(t, r)
 	older := obj(ReportGVK, "", "older", map[string]any{"spec": map[string]any{
-		"machineRef": machine, "result": "passed", "source": map[string]any{"kind": "Stack"},
+		"machineRef": machine, "result": "failed", "source": map[string]any{"kind": "Stack"},
 		"finishedAt": "2026-10-01T00:00:00Z"}})
-	if err := c.Create(context.Background(), older); err != nil {
-		t.Fatal(err)
+	oldest := obj(ReportGVK, "", "oldest", map[string]any{"spec": map[string]any{
+		"machineRef": machine, "result": "passed", "source": map[string]any{"kind": "Stack"},
+		"finishedAt": "2026-09-01T00:00:00Z"}})
+	for _, o := range []client.Object{older, oldest} {
+		if err := c.Create(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	want := fmt.Sprintf(`
-# HELP gpu_qualification_passed 1 when the machine's latest qualification passed, 0 when it did not.
-# TYPE gpu_qualification_passed gauge
-gpu_qualification_passed{machine=%[1]q,profile="single-gpu-smoke",provider=%[2]q} 0
-# HELP gpu_qualification_reports QualificationReports kept per machine and result, the history the cluster holds.
-# TYPE gpu_qualification_reports gauge
-gpu_qualification_reports{machine=%[1]q,result="failed"} 1
-gpu_qualification_reports{machine=%[1]q,result="passed"} 1
-# HELP gpu_qualification_test_metric A measurement from the machine's latest qualification, such as soak peak_temp_c.
-# TYPE gpu_qualification_test_metric gauge
-gpu_qualification_test_metric{machine=%[1]q,metric="allocatable_gpus",test="inventory"} 1
-gpu_qualification_test_metric{machine=%[1]q,metric="gpus",test="inventory"} 1
-gpu_qualification_test_metric{machine=%[1]q,metric="gpus_with_xid",test="soak"} 0
-gpu_qualification_test_metric{machine=%[1]q,metric="peak_temp_c",test="soak"} 91
-`, machine, provider)
-	err := testutil.CollectAndCompare(&ReportCollector{Reader: c}, strings.NewReader(want),
-		"gpu_qualification_passed", "gpu_qualification_reports", "gpu_qualification_test_metric")
+	id := map[string]string{"machine": machine, "provider": provider, "profile": "single-gpu-smoke",
+		"gpu_model": "NVIDIA RTX 2000 Ada Generation", "site": "dc1", "location": "", "rack": "rack-c"}
+	with := func(extra map[string]string) map[string]string {
+		out := map[string]string{}
+		for k, v := range id {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	want := []sample{
+		{"gpu_qualification_consecutive_failures", with(nil), 2},
+		{"gpu_qualification_passed", with(nil), 0},
+		{"gpu_qualification_failure_info", with(map[string]string{"result": "failed", "failed_tests": "soak",
+			"summary": "soak failed: above 85C: GPU 0 91C", "report": reportName(machine, "uid-1"),
+			"inventory_url": "https://netbox.example/dcim/devices/10/"}), 1},
+		{"gpu_qualification_reports", map[string]string{"machine": machine, "result": "failed"}, 2},
+		{"gpu_qualification_reports", map[string]string{"machine": machine, "result": "passed"}, 1},
+		{"gpu_qualification_test_metric", with(map[string]string{"test": "soak", "metric": "peak_temp_c"}), 91},
+		{"gpu_qualification_test_metric", with(map[string]string{"test": "inventory", "metric": "allocatable_gpus"}), 1},
+	}
+	got := gather(t, NewReportCollector(c, testTopology))
+	for _, w := range want {
+		if v, ok := got[w.key()]; !ok || v != w.value {
+			t.Errorf("%s = %v (present %v), want %v", w.key(), v, ok, w.value)
+		}
+	}
+}
+
+type sample struct {
+	name   string
+	labels map[string]string
+	value  float64
+}
+
+func (s sample) key() string {
+	keys := make([]string, 0, len(s.labels))
+	for k := range s.labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = k + "=" + s.labels[k]
+	}
+	return s.name + "{" + strings.Join(parts, ",") + "}"
+}
+
+// gather collects every series into name{sorted labels} -> value.
+func gather(t *testing.T, col prometheus.Collector) map[string]float64 {
+	t.Helper()
+	reg := prometheus.NewPedanticRegistry()
+	reg.MustRegister(col)
+	families, err := reg.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}
+	out := map[string]float64{}
+	for _, f := range families {
+		for _, m := range f.GetMetric() {
+			labels := map[string]string{}
+			for _, l := range m.GetLabel() {
+				labels[l.GetName()] = l.GetValue()
+			}
+			out[sample{f.GetName(), labels, 0}.key()] = m.GetGauge().GetValue()
+		}
+	}
+	return out
+}
+
+func TestRetentionKeepsTheLatest(t *testing.T) {
+	now := mustTime("2026-10-20T23:00:00Z")
+	var objs []client.Object
+	for i, finished := range []string{"2026-01-01T00:00:00Z", "2026-02-01T00:00:00Z", "2026-10-10T00:00:00Z", "2026-10-15T00:00:00Z"} {
+		r := obj(ReportGVK, "", fmt.Sprintf("r-%d", i), map[string]any{"spec": map[string]any{
+			"machineRef": "lonely", "result": "passed", "source": map[string]any{"kind": "Stack"}, "finishedAt": finished}})
+		r.SetLabels(map[string]string{labelMachine: "lonely"})
+		objs = append(objs, r)
+	}
+	ancient := obj(ReportGVK, "", "only", map[string]any{"spec": map[string]any{
+		"machineRef": "old-server", "result": "passed", "source": map[string]any{"kind": "Stack"}, "finishedAt": "2025-01-01T00:00:00Z"}})
+	ancient.SetLabels(map[string]string{labelMachine: "old-server"})
+	objs = append(objs, ancient)
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
+	r := newReconciler(c, TargetMachine)
+	r.Config.KeepReports, r.Config.MaxReportAge = 3, 90*24*time.Hour
+	r.Now = func() time.Time { return now }
+	for _, m := range []string{"lonely", "old-server"} {
+		if err := r.pruneReports(context.Background(), m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var names []string
+	for _, qr := range listReports(t, c) {
+		names = append(names, qr.GetName())
+	}
+	sort.Strings(names)
+	// r-0 and r-1 are past 90 days; old-server's only report is kept although it is older still.
+	if got := strings.Join(names, ","); got != "only,r-2,r-3" {
+		t.Fatalf("kept %s, want only,r-2,r-3", got)
+	}
+}
+
+// A fleet: thousands of machines with several reports each, through the collector.
+func TestCollectorAtFleetScale(t *testing.T) {
+	const machines, perMachine = 5000, 3
+	var objs []client.Object
+	for m := 0; m < machines; m++ {
+		for h := 0; h < perMachine; h++ {
+			result := "passed"
+			if m%50 == 0 && h == perMachine-1 {
+				result = "failed"
+			}
+			r := obj(ReportGVK, "", fmt.Sprintf("m%05d-%d", m, h), map[string]any{"spec": map[string]any{
+				"machineRef": fmt.Sprintf("metal3-dc%d.server-%05d", m%4, m), "providerRef": fmt.Sprintf("metal3-dc%d", m%4),
+				"result": result, "profile": "b300-burnin-v1", "source": map[string]any{"kind": "Stack"},
+				"finishedAt": fmt.Sprintf("2026-10-%02dT00:00:00Z", 10+h),
+				"topology":   map[string]any{"site": fmt.Sprintf("dc%d", m%4), "rack": fmt.Sprintf("rack-%03d", m/40)},
+				"hardware":   map[string]any{"gpuModel": "NVIDIA B300", "gpuCount": int64(8), "expectedGPUs": int64(8)},
+				"tests": []any{
+					map[string]any{"name": "inventory", "status": "passed", "metrics": map[string]any{"gpus": float64(8), "uncorrected_ecc_errors": float64(0)}},
+					map[string]any{"name": "soak", "status": result, "metrics": map[string]any{"peak_temp_c": float64(70 + m%25)}},
+				}}})
+			objs = append(objs, r)
+		}
+	}
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
+	col := NewReportCollector(c, testTopology)
+	start := time.Now()
+	n := testutil.CollectAndCount(col)
+	took := time.Since(start)
+	// Per machine: result, passed, finished, 2 gpus, 2 test statuses, 3 test metrics, consecutive,
+	// 1 or 2 report counts; plus failure_info for the 100 failing machines.
+	if n < machines*12 || n > machines*13+200 {
+		t.Fatalf("%d series for %d machines", n, machines)
+	}
+	if got := testutil.CollectAndCount(col, "gpu_qualification_failure_info"); got != machines/50 {
+		t.Fatalf("%d failure_info series, want %d", got, machines/50)
+	}
+	t.Logf("%d machines, %d reports: %d series in %s", machines, machines*perMachine, n, took)
+}
+
+func mustTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
 
 func TestSafeLabelAndReportName(t *testing.T) {

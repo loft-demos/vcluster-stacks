@@ -1,13 +1,14 @@
 {
   "uid": "gpu-burn-in",
   "title": "GPU Burn-In",
-  "description": "GPU server qualification results from QualificationReports, across providers.",
+  "description": "GPU server qualification across the fleet, by model, site and rack. Aggregates only; failing servers are on GPU Burn-In: Failures.",
   "tags": [
     "vcluster",
     "fleet-observability",
     "gpu",
     "qualification",
-    "burn-in"
+    "burn-in",
+    "fleet"
   ],
   "timezone": "browser",
   "schemaVersion": 41,
@@ -20,22 +21,28 @@
   "refresh": "1m",
   "links": [
     {
+      "title": "GPU Burn-In: Failures",
+      "url": "/d/gpu-burn-in-failures",
+      "type": "link",
+      "tags": [],
+      "keepTime": true,
+      "includeVars": true
+    },
+    {
+      "title": "GPU Burn-In: Server",
+      "url": "/d/gpu-burn-in-server",
+      "type": "link",
+      "tags": [],
+      "keepTime": true,
+      "includeVars": false
+    },
+    {
       "title": "GPU Overview",
       "url": "/d/vcluster-gpu-overview",
       "type": "link",
-      "tags": []
-    },
-    {
-      "title": "Tenant Cluster GPUs",
-      "url": "/d/vcluster-tenant-gpus",
-      "type": "link",
-      "tags": []
-    },
-    {
-      "title": "Fleet Overview",
-      "url": "/d/vcluster-fleet-observability-operations",
-      "type": "link",
-      "tags": []
+      "tags": [],
+      "keepTime": true,
+      "includeVars": false
     }
   ],
   "templating": {
@@ -57,11 +64,12 @@
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(gpu_qualification_passed, provider)",
+          "query": "label_values(gpu_qualification_passed{}, provider)",
           "refId": "StandardVariableQuery"
         },
-        "definition": "label_values(gpu_qualification_passed, provider)",
+        "definition": "label_values(gpu_qualification_passed{}, provider)",
         "refresh": 2,
+        "sort": 1,
         "includeAll": true,
         "multi": true,
         "allValue": ".*",
@@ -72,8 +80,7 @@
           "value": [
             "$__all"
           ]
-        },
-        "sort": 1
+        }
       },
       {
         "name": "profile",
@@ -89,6 +96,7 @@
         },
         "definition": "label_values(gpu_qualification_passed{provider=~\"$provider\"}, profile)",
         "refresh": 2,
+        "sort": 1,
         "includeAll": true,
         "multi": true,
         "allValue": ".*",
@@ -99,23 +107,23 @@
           "value": [
             "$__all"
           ]
-        },
-        "sort": 1
+        }
       },
       {
-        "name": "machine",
-        "label": "Machine",
+        "name": "gpu_model",
+        "label": "GPU model",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
         "query": {
-          "query": "label_values(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\"}, machine)",
+          "query": "label_values(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\"}, gpu_model)",
           "refId": "StandardVariableQuery"
         },
-        "definition": "label_values(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\"}, machine)",
+        "definition": "label_values(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\"}, gpu_model)",
         "refresh": 2,
+        "sort": 1,
         "includeAll": true,
         "multi": true,
         "allValue": ".*",
@@ -126,16 +134,81 @@
           "value": [
             "$__all"
           ]
+        }
+      },
+      {
+        "name": "site",
+        "label": "Site",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
         },
-        "sort": 1
+        "query": {
+          "query": "label_values(gpu_qualification_passed{provider=~\"$provider\"}, site)",
+          "refId": "StandardVariableQuery"
+        },
+        "definition": "label_values(gpu_qualification_passed{provider=~\"$provider\"}, site)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "rack",
+        "label": "Rack",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "query": "label_values(gpu_qualification_passed{provider=~\"$provider\",site=~\"$site\"}, rack)",
+          "refId": "StandardVariableQuery"
+        },
+        "definition": "label_values(gpu_qualification_passed{provider=~\"$provider\",site=~\"$site\"}, rack)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "stale_days",
+        "label": "Stale after (days)",
+        "type": "custom",
+        "query": "30,90,180,365",
+        "current": {
+          "text": "90",
+          "value": "90"
+        },
+        "options": [],
+        "hide": 0
       }
     ]
   },
   "panels": [
     {
       "type": "row",
-      "title": "Fleet",
-      "id": 2,
+      "title": "Summary",
+      "id": 1,
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -147,26 +220,15 @@
     },
     {
       "type": "stat",
-      "title": "Qualified servers",
-      "id": 3,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Servers whose latest qualification passed.",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 0,
-        "y": 1
-      },
+      "title": "Servers",
+      "description": "Servers with a qualification report.",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"} == 1) or vector(0)",
+          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"}) or vector(0)",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -200,30 +262,87 @@
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Not qualified",
-      "id": 4,
+      },
+      "id": 2,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Servers whose latest qualification failed or errored. Keep them out of production NodeTypes.",
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 4,
+        "x": 0,
         "y": 1
-      },
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Qualified",
+      "description": "",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"} == 0) or vector(0)",
+          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 1) or vector(0)",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Not qualified",
+      "description": "Servers whose latest qualification failed or errored. Open GPU Burn-In: Failures for the list.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 0) or vector(0)",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -261,30 +380,36 @@
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Pass rate",
-      "id": 5,
+      },
+      "links": [
+        {
+          "title": "Not-qualified servers",
+          "url": "/d/gpu-burn-in-failures?${__url_time_range}&${datasource:queryparam}"
+        }
+      ],
+      "id": 4,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Share of servers whose latest qualification passed.",
       "gridPos": {
         "h": 4,
         "w": 4,
         "x": 8,
         "y": 1
-      },
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pass rate",
+      "description": "",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"}) / count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"})",
+          "expr": "sum(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"}) / count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -316,40 +441,40 @@
               },
               {
                 "color": "orange",
-                "value": 0.8
+                "value": 0.95
               },
               {
                 "color": "green",
-                "value": 0.95
+                "value": 0.99
               }
             ]
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Servers with uncorrected ECC",
-      "id": 6,
+      },
+      "id": 5,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
         "h": 4,
         "w": 4,
         "x": 12,
         "y": 1
-      },
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Qualified in the last 24h",
+      "description": "",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(gpu_qualification_test_metric{machine=~\"$machine\",test=\"inventory\",metric=\"uncorrected_ecc_errors\"} > 0) or vector(0)",
+          "expr": "count((gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 1) and (time() - gpu_qualification_finished_timestamp_seconds{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} < 86400)) or vector(0)",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -378,39 +503,35 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
               }
             ]
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Servers with an XID during soak",
-      "id": 7,
+      },
+      "id": 6,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "",
       "gridPos": {
         "h": 4,
         "w": 4,
         "x": 16,
         "y": 1
-      },
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Stale",
+      "description": "Servers whose latest qualification is older than the Stale after selector.",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"gpus_with_xid\"} > 0) or vector(0)",
+          "expr": "count(time() - gpu_qualification_finished_timestamp_seconds{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} > $stale_days * 86400) or vector(0)",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -441,94 +562,50 @@
                 "value": null
               },
               {
-                "color": "red",
+                "color": "orange",
                 "value": 1
               }
             ]
           }
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "stat",
-      "title": "Last qualification",
-      "id": 8,
+      },
+      "id": 7,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "When the most recent qualification finished.",
       "gridPos": {
         "h": 4,
         "w": 4,
         "x": 20,
         "y": 1
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max(gpu_qualification_finished_timestamp_seconds{machine=~\"$machine\"}) * 1000",
-          "refId": "A",
-          "legendFormat": "",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "dateTimeFromNow",
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
       }
     },
     {
-      "type": "table",
-      "title": "Servers",
-      "id": 9,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Each server's latest qualification. Measurements are blank for tests that did not run.",
+      "type": "row",
+      "title": "By GPU model and site",
+      "id": 8,
+      "collapsed": false,
       "gridPos": {
-        "h": 9,
+        "h": 1,
         "w": 24,
         "x": 0,
         "y": 5
       },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "By gpu model",
+      "description": "",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (machine, provider, profile) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"})",
+          "expr": "count by (gpu_model) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -540,7 +617,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (machine) (gpu_qualification_finished_timestamp_seconds{machine=~\"$machine\"}) * 1000",
+          "expr": "sum by (gpu_model) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
           "refId": "B",
           "legendFormat": "",
           "instant": true,
@@ -552,7 +629,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (machine) (gpu_qualification_gpus{machine=~\"$machine\",kind=\"found\"})",
+          "expr": "count by (gpu_model) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 0)",
           "refId": "C",
           "legendFormat": "",
           "instant": true,
@@ -564,56 +641,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (machine) (gpu_qualification_gpus{machine=~\"$machine\",kind=\"expected\"})",
+          "expr": "sum by (gpu_model) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"}) / count by (gpu_model) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
           "refId": "D",
-          "legendFormat": "",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max by (machine) (gpu_qualification_test_metric{machine=~\"$machine\",test=\"inventory\",metric=\"uncorrected_ecc_errors\"})",
-          "refId": "E",
-          "legendFormat": "",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max by (machine) (gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"peak_temp_c\"})",
-          "refId": "F",
-          "legendFormat": "",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max by (machine) (gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"gpus_with_xid\"})",
-          "refId": "G",
-          "legendFormat": "",
-          "instant": true,
-          "range": false,
-          "format": "table"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max by (machine) (gpu_qualification_test_metric{machine=~\"$machine\",test=\"nccl\",metric=\"all_reduce_bus_bandwidth_gbps\"})",
-          "refId": "H",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -624,49 +653,47 @@
         {
           "id": "joinByField",
           "options": {
-            "byField": "machine",
+            "byField": "gpu_model",
             "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "gpu_model",
+                "Value #A",
+                "Value #B",
+                "Value #C",
+                "Value #D"
+              ]
+            }
           }
         },
         {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "Time 1": true,
-              "Time 2": true,
-              "Time 3": true,
-              "Time 4": true,
-              "Time 5": true,
-              "Time 6": true,
-              "Time 7": true,
-              "Time 8": true
+            "includeByName": {
+              "gpu_model": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true,
+              "Value #D": true
             },
             "indexByName": {
-              "machine": 0,
-              "provider": 1,
-              "profile": 2,
-              "Value #A": 3,
-              "Value #B": 4,
-              "Value #C": 5,
-              "Value #D": 6,
-              "Value #E": 7,
-              "Value #F": 8,
-              "Value #G": 9,
-              "Value #H": 10
+              "gpu_model": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4
             },
             "renameByName": {
-              "machine": "Machine",
-              "provider": "Provider",
-              "profile": "Profile",
-              "Value #A": "Result",
-              "Value #B": "Finished",
-              "Value #C": "GPUs",
-              "Value #D": "Expected",
-              "Value #E": "Uncorrected ECC",
-              "Value #F": "Soak peak (C)",
-              "Value #G": "GPUs with XID",
-              "Value #H": "all_reduce (GB/s)"
+              "gpu_model": "GPU model",
+              "Value #A": "Servers",
+              "Value #B": "Qualified",
+              "Value #C": "Not qualified",
+              "Value #D": "Pass rate"
             }
           }
         }
@@ -674,9 +701,12 @@
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
         "sortBy": [
           {
-            "displayName": "Result",
+            "displayName": "Pass rate",
             "desc": false
           }
         ]
@@ -687,60 +717,53 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "filterable": true
           }
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "Result"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "1": {
-                        "text": "Qualified",
-                        "color": "green",
-                        "index": 0
-                      },
-                      "0": {
-                        "text": "Not qualified",
-                        "color": "red",
-                        "index": 1
-                      }
-                    }
-                  }
-                ]
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Finished"
+              "options": "Pass rate"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsIso"
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.95
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.99
+                    }
+                  ]
+                }
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Uncorrected ECC"
+              "options": "Not qualified"
             },
             "properties": [
               {
@@ -766,11 +789,190 @@
                 }
               }
             ]
+          }
+        ]
+      },
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "table",
+      "title": "By site",
+      "description": "",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (site) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (site) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
+          "refId": "B",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (site) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 0)",
+          "refId": "C",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (site) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"}) / count by (site) (gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"})",
+          "refId": "D",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "site",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "site",
+                "Value #A",
+                "Value #B",
+                "Value #C",
+                "Value #D"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "site": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true,
+              "Value #D": true
+            },
+            "indexByName": {
+              "site": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4
+            },
+            "renameByName": {
+              "site": "Site",
+              "Value #A": "Servers",
+              "Value #B": "Qualified",
+              "Value #C": "Not qualified",
+              "Value #D": "Pass rate"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Pass rate",
+            "desc": false
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pass rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.95
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.99
+                    }
+                  ]
+                }
+              }
+            ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "GPUs with XID"
+              "options": "Not qualified"
             },
             "properties": [
               {
@@ -796,13 +998,423 @@
                 }
               }
             ]
+          }
+        ]
+      },
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      }
+    },
+    {
+      "type": "row",
+      "title": "Failure analysis",
+      "id": 11,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Racks with the most not-qualified servers",
+      "description": "Failures that cluster in a rack point at shared power, cooling or network, not single servers.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(20, sum by (site, rack) (1 - gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"}) > 0)",
+          "refId": "A",
+          "legendFormat": "{{site}} / {{rack}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Failing tests",
+      "description": "Which tests fail most, across not-qualified servers.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sort_desc(count by (test) (gpu_qualification_test_status{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",status=~\"failed|error\"} == 1))",
+          "refId": "A",
+          "legendFormat": "{{test}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Not qualified over time",
+      "description": "",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(gpu_qualification_passed{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} == 0) or vector(0)",
+          "refId": "A",
+          "legendFormat": "not qualified"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(time() - gpu_qualification_finished_timestamp_seconds{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\"} > $stale_days * 86400) or vector(0)",
+          "refId": "B",
+          "legendFormat": "stale"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "none",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      }
+    },
+    {
+      "type": "row",
+      "title": "Distributions",
+      "id": 15,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Soak peak temperature by GPU model",
+      "description": "",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "quantile by (gpu_model) (0.5, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"peak_temp_c\"})",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "quantile by (gpu_model) (0.95, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"peak_temp_c\"})",
+          "refId": "B",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (gpu_model) (gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"peak_temp_c\"})",
+          "refId": "C",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "gpu_model",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "gpu_model",
+                "Value #A",
+                "Value #B",
+                "Value #C"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "includeByName": {
+              "gpu_model": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true
+            },
+            "indexByName": {
+              "gpu_model": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3
+            },
+            "renameByName": {
+              "gpu_model": "GPU model",
+              "Value #A": "p50",
+              "Value #B": "p95",
+              "Value #C": "Hottest"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p50"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 85
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Soak peak (C)"
+              "options": "p95"
             },
             "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 85
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hottest"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
               {
                 "id": "thresholds",
                 "value": {
@@ -832,44 +1444,55 @@
             ]
           }
         ]
-      }
-    },
-    {
-      "type": "row",
-      "title": "Tests",
-      "id": 10,
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 14
       },
-      "panels": []
-    },
-    {
-      "type": "table",
-      "title": "Test results",
-      "id": 11,
+      "id": 16,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Each test's status in each server's latest qualification.",
       "gridPos": {
-        "h": 8,
-        "w": 24,
+        "h": 7,
+        "w": 12,
         "x": 0,
-        "y": 15
-      },
+        "y": 25
+      }
+    },
+    {
+      "type": "table",
+      "title": "NCCL all_reduce bus bandwidth by GPU model",
+      "description": "Single-GPU servers report 0 and are left out. Compare within a GPU model.",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "gpu_qualification_test_status{machine=~\"$machine\"} == 1",
+          "expr": "quantile by (gpu_model) (0.5, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"nccl\",metric=\"all_reduce_bus_bandwidth_gbps\"} > 0)",
           "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "quantile by (gpu_model) (0.05, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"nccl\",metric=\"all_reduce_bus_bandwidth_gbps\"} > 0)",
+          "refId": "B",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min by (gpu_model) (gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"nccl\",metric=\"all_reduce_bus_bandwidth_gbps\"} > 0)",
+          "refId": "C",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -878,131 +1501,91 @@
       ],
       "transformations": [
         {
-          "id": "groupingToMatrix",
+          "id": "joinByField",
           "options": {
-            "columnField": "test",
-            "rowField": "machine",
-            "valueField": "status"
+            "byField": "gpu_model",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "gpu_model",
+                "Value #A",
+                "Value #B",
+                "Value #C"
+              ]
+            }
           }
         },
         {
           "id": "organize",
           "options": {
+            "includeByName": {
+              "gpu_model": true,
+              "Value #A": true,
+              "Value #B": true,
+              "Value #C": true
+            },
             "indexByName": {
-              "machine\\test": 0,
-              "gpuready": 1,
-              "inventory": 2,
-              "dcgmdiag": 3,
-              "nccl": 4,
-              "soak": 5
+              "gpu_model": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3
             },
             "renameByName": {
-              "machine\\test": "Machine"
+              "gpu_model": "GPU model",
+              "Value #A": "p50 (GB/s)",
+              "Value #B": "p5 (GB/s)",
+              "Value #C": "Slowest (GB/s)"
             }
           }
         }
       ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "align": "center",
+            "align": "auto",
             "cellOptions": {
-              "type": "color-background"
-            }
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "passed": {
-                  "color": "green",
-                  "index": 0
-                },
-                "failed": {
-                  "color": "red",
-                  "index": 1
-                },
-                "error": {
-                  "color": "dark-red",
-                  "index": 2
-                },
-                "skipped": {
-                  "color": "orange",
-                  "index": 3
-                },
-                "disabled": {
-                  "color": "transparent",
-                  "index": 4
-                },
-                "missing": {
-                  "color": "purple",
-                  "index": 5
-                }
-              }
-            }
-          ]
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Machine"
+              "type": "auto"
             },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "auto"
-                }
-              },
-              {
-                "id": "custom.align",
-                "value": "left"
-              }
-            ]
+            "filterable": true
           }
-        ]
+        },
+        "overrides": []
       },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm"
-      }
-    },
-    {
-      "type": "row",
-      "title": "Measurements",
-      "id": 12,
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 23
-      },
-      "panels": []
-    },
-    {
-      "type": "bargauge",
-      "title": "Soak peak GPU temperature",
-      "id": 13,
+      "id": 17,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Hottest GPU during the soak. The soak fails above its maxGPUTempC.",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 24
-      },
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Hottest 20 servers in the soak",
+      "description": "",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"peak_temp_c\"}",
+          "expr": "topk(20, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"peak_temp_c\"})",
           "refId": "A",
           "legendFormat": "{{machine}}",
           "instant": true,
@@ -1015,6 +1598,7 @@
         "showUnfilled": true,
         "valueMode": "color",
         "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1044,272 +1628,39 @@
             ]
           },
           "min": 0,
-          "max": 110
+          "max": 110,
+          "links": [
+            {
+              "title": "Open server",
+              "url": "/d/gpu-burn-in-server?var-machine=${__field.labels.machine}&${datasource:queryparam}"
+            }
+          ]
         },
         "overrides": []
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "Soak peak power",
-      "id": 14,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
       },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 24
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"peak_power_w\"}",
-          "refId": "A",
-          "legendFormat": "{{machine}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "watt",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "min": 0
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "NCCL bus bandwidth",
-      "id": 15,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "Average bus bandwidth per collective, GB/s. Compare servers of the same model; 0 with one GPU.",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 24
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "gpu_qualification_test_metric{machine=~\"$machine\",test=\"nccl\",metric=~\".+_bus_bandwidth_gbps\"}",
-          "refId": "A",
-          "legendFormat": "{{machine}} {{metric}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "GPUs found and expected",
-      "id": 16,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 32
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "gpu_qualification_gpus{machine=~\"$machine\"}",
-          "refId": "A",
-          "legendFormat": "{{machine}} {{kind}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "min": 0
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "Uncorrected ECC errors",
-      "id": 17,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 32
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "gpu_qualification_test_metric{machine=~\"$machine\",test=\"inventory\",metric=\"uncorrected_ecc_errors\"}",
-          "refId": "A",
-          "legendFormat": "{{machine}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "min": 0
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "Soak throttle samples",
       "id": 18,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "dmon samples with a thermal or power-brake clock event reason. Reported, not failed on.",
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
+        "h": 9,
+        "w": 12,
+        "x": 0,
         "y": 32
-      },
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Slowest 20 servers for NCCL all_reduce",
+      "description": "GB/s. Single-GPU servers are left out.",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "gpu_qualification_test_metric{machine=~\"$machine\",test=\"soak\",metric=\"throttle_samples\"}",
+          "expr": "bottomk(20, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"nccl\",metric=\"all_reduce_bus_bandwidth_gbps\"} > 0)",
           "refId": "A",
           "legendFormat": "{{machine}}",
           "instant": true,
@@ -1322,162 +1673,7 @@
         "showUnfilled": true,
         "valueMode": "color",
         "namePlacement": "left",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              }
-            ]
-          },
-          "min": 0
-        },
-        "overrides": []
-      }
-    },
-    {
-      "type": "row",
-      "title": "History",
-      "id": 19,
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 40
-      },
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Servers by latest result",
-      "id": 20,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 41
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "count by (result) (gpu_qualification_result{provider=~\"$provider\",profile=~\"$profile\",machine=~\"$machine\"})",
-          "refId": "A",
-          "legendFormat": "{{result}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "stacking": {
-              "mode": "normal"
-            }
-          },
-          "unit": "none",
-          "min": 0
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "passed"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "failed"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "red"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      }
-    },
-    {
-      "type": "bargauge",
-      "title": "Reports kept per server",
-      "id": 21,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "QualificationReports the cluster holds, the history behind each server.",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 41
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum by (machine, result) (gpu_qualification_reports{machine=~\"$machine\"})",
-          "refId": "A",
-          "legendFormat": "{{machine}} {{result}}",
-          "instant": true,
-          "range": false
-        }
-      ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": true,
-        "valueMode": "color",
-        "namePlacement": "left",
+        "sizing": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -1498,9 +1694,26 @@
               }
             ]
           },
-          "min": 0
+          "min": 0,
+          "links": [
+            {
+              "title": "Open server",
+              "url": "/d/gpu-burn-in-server?var-machine=${__field.labels.machine}&${datasource:queryparam}"
+            }
+          ]
         },
         "overrides": []
+      },
+      "id": 19,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 32
       }
     }
   ]

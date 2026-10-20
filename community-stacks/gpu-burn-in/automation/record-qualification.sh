@@ -42,7 +42,9 @@
 # and on dashboards. It names the Platform Machine: --report-machine, --machine, or
 # <--provider>.<--bmh>. --report-machine alone records only the report, with no label. It is created
 # on the cluster that runs vCluster Platform (--report-context, default the current context), where
-# the CRD from recorder/chart/crds/ must be installed. The script does not prune old reports.
+# the CRD from recorder/chart/crds/ must be installed. Topology (site, location and rack, or
+# $TOPOLOGY as name=machine-label pairs) and the inventory URL are read from the Machine there when
+# it can be. The script does not prune old reports.
 #
 # NetBox (optional, NETBOX_URL and NETBOX_TOKEN in the environment): on a failure, sets the device
 # status to failed and removes --netbox-admit-tag, the tag that brings the device into vCluster
@@ -128,7 +130,18 @@ if $create_report; then
   [[ -n "$provider" ]] || provider=${report_machine%%.*}
   # Stable per report: recording the same report twice creates it once.
   digest=$( (sha256sum 2>/dev/null || shasum -a 256) <"$tmp/report.json" | cut -c1-8)
-  jq --arg machine "$report_machine" --arg provider "$provider" --arg digest "$digest" '
+  # Topology and inventory URL, as the controller records them, from the Platform's Machine.
+  kr=(kubectl)
+  [[ -z "$report_context" ]] || kr=(kubectl --context "$report_context")
+  "${kr[@]}" get machines.storage.loft.sh "$report_machine" -o json >"$tmp/machine.json" 2>/dev/null || echo '{}' >"$tmp/machine.json"
+  topology=${TOPOLOGY:-site=netbox.vcluster.com/site,location=netbox.vcluster.com/location,rack=netbox.vcluster.com/rack}
+  jq --arg map "$topology" '
+    (.metadata.labels // {}) as $l |
+    {topology: ([$map | split(",")[] | select(contains("=")) | split("=") | {key: .[0], value: $l[.[1]]}
+                 | select(.value != null and .value != "")] | from_entries),
+     inventoryURL: (.metadata.annotations["netbox.vcluster.com/url"] // "")}' "$tmp/machine.json" >"$tmp/placement.json"
+  jq --arg machine "$report_machine" --arg provider "$provider" --arg digest "$digest" \
+    --slurpfile placement "$tmp/placement.json" '
     def tolabel: gsub("[^A-Za-z0-9._-]+"; "-") | ltrimstr("-") | rtrimstr("-") | .[0:63];
     def nonempty: with_entries(select(.value != null and .value != ""));
     ([.tests[]?.finishedAt | select(. != null and . != "")] | max) as $finished |
@@ -141,6 +154,8 @@ if $create_report; then
                 "qualification.vcluster-stacks.io/profile": ((.profile // "") | tolabel),
                 "qualification.vcluster-stacks.io/source-kind": "Stack"}},
      spec: ({machineRef: $machine, providerRef: $provider, assetID: .assetID,
+             inventoryURL: $placement[0].inventoryURL,
+             topology: (if ($placement[0].topology | length) > 0 then $placement[0].topology else null end),
              source: {kind: "Stack", name: "record-qualification.sh"},
              profile: .profile, result: .result, failedTests: (.failedTests // []), summary: .summary,
              startedAt: .startedAt, finishedAt: $finished, reportURI: .reportURI,

@@ -45,8 +45,21 @@ netbox:
   # Added to a device that passes.
   qualifiedTag: ""
 
-# QualificationReports kept per machine, newest first. 0 keeps all.
-keepReports: 20
+# Report retention per machine: at most keepReports reports, none finished more than maxReportAge
+# ago. A machine's latest report is always kept, whatever its age: it is the machine's current
+# state. 0 turns either limit off. Keep long-term history in the S3 copy of each report. Sizing: at
+# about 4 KB a report, 10,000 machines x 5 reports is about 200 MB in the cluster's etcd.
+keepReports: 5
+maxReportAge: 2160h # 90 days
+
+# Topology names recorded in each report and added as labels to every metric, each read from a
+# Machine label, so dashboards can group failures by shared power, cooling and network. The
+# defaults are what vCluster Platform's NetBox import puts on every Machine; missing labels stay
+# empty. The dashboards use site, location and rack.
+topology:
+  site: netbox.vcluster.com/site
+  location: netbox.vcluster.com/location
+  rack: netbox.vcluster.com/rack
 
 # Log every write instead of making it.
 dryRun: false

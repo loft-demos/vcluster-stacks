@@ -56,6 +56,12 @@ spec:
             - --netbox-qualified-tag={{ . }}
             {{- end }}
             - --keep-reports={{ .Values.keepReports }}
+            - --max-report-age={{ .Values.maxReportAge | default "0s" }}
+            {{- $topology := list }}
+            {{- range $name, $label := .Values.topology }}
+            {{- $topology = append $topology (printf "%s=%s" $name $label) }}
+            {{- end }}
+            - --topology={{ join "," $topology }}
             - --dry-run={{ .Values.dryRun }}
             - --leader-elect={{ .Values.leaderElection }}
             - --zap-log-level={{ .Values.logLevel }}

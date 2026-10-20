@@ -2,7 +2,9 @@ package qualify
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 )
 
 // Target is where a result is recorded.
@@ -36,8 +38,50 @@ type Config struct {
 	NetBoxQualifiedTag string
 	// KeepReports is how many QualificationReports to keep per machine. 0 keeps all.
 	KeepReports int
+	// MaxReportAge drops reports finished longer ago. 0 keeps them. A machine's latest report is
+	// always kept, whatever its age: it is the machine's current state.
+	MaxReportAge time.Duration
+	// Topology maps each topology name a report records (and its metrics carry as a label) to the
+	// Machine label it is read from, in order. The default reads NetBox's site, location and rack.
+	Topology []TopologyLabel
 	// DryRun logs every write instead of making it.
 	DryRun bool
+}
+
+// TopologyLabel is one topology name and the Machine label it comes from.
+type TopologyLabel struct {
+	Name         string
+	MachineLabel string
+}
+
+// DefaultTopology reads what vCluster Platform's NetBox import puts on every Machine.
+const DefaultTopology = "site=netbox.vcluster.com/site,location=netbox.vcluster.com/location,rack=netbox.vcluster.com/rack"
+
+var topologyName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+
+// ParseTopology parses name=machine-label pairs, comma-separated.
+func ParseTopology(s string) ([]TopologyLabel, error) {
+	var out []TopologyLabel
+	seen := map[string]bool{}
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		name, label, ok := strings.Cut(pair, "=")
+		if !ok || label == "" {
+			return nil, fmt.Errorf("topology %q: want name=machine-label", pair)
+		}
+		if !topologyName.MatchString(name) || reservedMetricLabels[name] {
+			return nil, fmt.Errorf("topology name %q: want a lowercase metric label name that is not one of the recorder's own", name)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("topology name %q given twice", name)
+		}
+		seen[name] = true
+		out = append(out, TopologyLabel{Name: name, MachineLabel: label})
+	}
+	return out, nil
 }
 
 // Validate rejects settings that would record nothing useful or nothing at all.
@@ -73,4 +117,11 @@ func (c *Config) watches(template string) bool {
 		}
 	}
 	return false
+}
+
+// Labels the recorder's metrics already use; a topology name may not shadow one.
+var reservedMetricLabels = map[string]bool{
+	"machine": true, "provider": true, "profile": true, "gpu_model": true, "source": true,
+	"result": true, "test": true, "status": true, "metric": true, "kind": true,
+	"failed_tests": true, "summary": true, "report": true, "inventory_url": true,
 }

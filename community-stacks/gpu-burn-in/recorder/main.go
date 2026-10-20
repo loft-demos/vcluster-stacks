@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/loft-sh/vcluster-stacks/community-stacks/gpu-burn-in/recorder/internal/qualify"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,6 +27,7 @@ func main() {
 		metricsAddr     string
 		probeAddr       string
 		leaderElect     bool
+		topology        string
 	)
 	flag.StringVar(&templates, "templates", "gpu-burn-in", "Comma-separated StackTemplate names whose instances are recorded.")
 	flag.StringVar(&cfg.LabelDomain, "label-domain", "gpu-qualification.example.com", "Domain of the result label and annotations. Not a vcluster.com or loft.sh domain.")
@@ -35,7 +37,9 @@ func main() {
 	flag.StringVar(&netboxTokenFile, "netbox-token-file", "", "File holding a NetBox API token. Empty disables NetBox updates.")
 	flag.StringVar(&cfg.NetBoxAdmitTag, "netbox-admit-tag", "", "NetBox tag removed from a device that fails, the tag that brings it into vCluster Platform.")
 	flag.StringVar(&cfg.NetBoxQualifiedTag, "netbox-qualified-tag", "", "NetBox tag added to a device that passes.")
-	flag.IntVar(&cfg.KeepReports, "keep-reports", 20, "QualificationReports to keep per machine. 0 keeps all.")
+	flag.IntVar(&cfg.KeepReports, "keep-reports", 5, "QualificationReports to keep per machine. 0 keeps any number. The latest is always kept.")
+	flag.DurationVar(&cfg.MaxReportAge, "max-report-age", 90*24*time.Hour, "Drop reports finished longer ago. 0 keeps any age. The latest is always kept.")
+	flag.StringVar(&topology, "topology", qualify.DefaultTopology, "Topology names to record and label metrics with, as name=machine-label pairs.")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Log every write instead of making it.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Metrics address. 0 disables.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe address.")
@@ -52,6 +56,11 @@ func main() {
 		}
 	}
 	cfg.Target = qualify.Target(target)
+	var err error
+	if cfg.Topology, err = qualify.ParseTopology(topology); err != nil {
+		log.Error(err, "invalid --topology")
+		os.Exit(1)
+	}
 	if err := cfg.Validate(); err != nil {
 		log.Error(err, "invalid configuration")
 		os.Exit(1)
@@ -97,7 +106,7 @@ func main() {
 		log.Error(err, "set up controller")
 		os.Exit(1)
 	}
-	ctrlmetrics.Registry.MustRegister(&qualify.ReportCollector{Reader: mgr.GetClient()})
+	ctrlmetrics.Registry.MustRegister(qualify.NewReportCollector(mgr.GetClient(), cfg.Topology))
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)
 

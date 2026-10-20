@@ -11,6 +11,7 @@ package qualify
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -48,6 +49,15 @@ type Reconciler struct {
 	NetBox   *NetBox
 	Events   record.EventRecorder
 	Config   Config
+	// Now is the clock for report retention; nil uses time.Now.
+	Now func() time.Time
+}
+
+func (r *Reconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 func newObj(gvk schema.GroupVersionKind) *unstructured.Unstructured {
@@ -120,7 +130,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	runID := fmt.Sprintf("%s/%s/%s", si.GetNamespace(), si.GetName(), si.GetUID())
 	for i := range machines {
 		// The report first: it is the history, and creating it again is a no-op.
-		qr, err := buildReport(si, &machines[i], report, secret.Data[reportJSONOutputKey])
+		qr, err := buildReport(si, &machines[i], report, secret.Data[reportJSONOutputKey], r.Config.Topology)
 		if err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
 			return ctrl.Result{}, err

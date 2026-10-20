@@ -615,13 +615,13 @@ for e in errors:
 sys.exit(1 if errors else 0)
 SCHEMA
 
-# The GPU Burn-In dashboard: the committed JSON is what its generator writes, and every metric it
-# queries is one the recorder serves.
-cp "$root/recorder/chart/dashboards/gpu-burn-in.json" "$work/dashboard.committed.json"
+# The GPU Burn-In dashboards: the committed JSON is what their generator writes, and every metric
+# they query is one the recorder serves.
+cp -R "$root/recorder/chart/dashboards" "$work/dashboards.committed"
 python3 "$root/recorder/dashboards/gen_gpu_burn_in.py" >/dev/null
-if ! cmp -s "$work/dashboard.committed.json" "$root/recorder/chart/dashboards/gpu-burn-in.json"; then
-  echo "FAIL recorder/chart/dashboards/gpu-burn-in.json is stale; rerun recorder/dashboards/gen_gpu_burn_in.py and commit it" >&2
-  cp "$work/dashboard.committed.json" "$root/recorder/chart/dashboards/gpu-burn-in.json"
+if ! diff -r -q "$work/dashboards.committed" "$root/recorder/chart/dashboards" >/dev/null; then
+  echo "FAIL recorder/chart/dashboards is stale; rerun recorder/dashboards/gen_gpu_burn_in.py and commit it" >&2
+  rm -rf "$root/recorder/chart/dashboards" && cp -R "$work/dashboards.committed" "$root/recorder/chart/dashboards"
   status=1
 fi
 python3 - "$root" <<'DASH' || status=1
@@ -629,7 +629,6 @@ import json, re, sys
 from pathlib import Path
 root = Path(sys.argv[1])
 served = set(re.findall(r'NewDesc\("(gpu_qualification_[a-z_]+)"', (root / "recorder/internal/qualify/metrics.go").read_text()))
-d = json.loads((root / "recorder/chart/dashboards/gpu-burn-in.json").read_text())
 exprs = []
 def walk(n):
     if isinstance(n, dict):
@@ -640,7 +639,13 @@ def walk(n):
     elif isinstance(n, list):
         for v in n:
             walk(v)
-walk(d)
+dashboards = sorted((root / "recorder/chart/dashboards").glob("*.json"))
+for path in dashboards:
+    walk(json.loads(path.read_text()))
+uids = [json.loads(p.read_text())["uid"] for p in dashboards]
+if len(set(uids)) != len(uids) or len(uids) != 3:
+    print(f"FAIL expected three GPU Burn-In dashboards with distinct uids, found {uids}", file=sys.stderr)
+    sys.exit(1)
 bad = sorted({m for e in exprs for m in re.findall(r"gpu_qualification_[a-z_]+", e)} - served)
 for m in bad:
     print(f"FAIL GPU Burn-In dashboard queries {m}, which the recorder does not serve", file=sys.stderr)

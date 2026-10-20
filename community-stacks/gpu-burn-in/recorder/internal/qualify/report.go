@@ -93,7 +93,7 @@ func reportName(machine, runUID string) string {
 // buildReport turns a run's outputs into a QualificationReport for one machine. The full
 // report.json comes from the report task's reportjson output; without it (an older Stack) the
 // report carries what the published outputs hold.
-func buildReport(si, machine *unstructured.Unstructured, rep Report, raw []byte) (*unstructured.Unstructured, error) {
+func buildReport(si, machine *unstructured.Unstructured, rep Report, raw []byte, topology []TopologyLabel) (*unstructured.Unstructured, error) {
 	var full stackReport
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &full); err != nil {
@@ -128,6 +128,12 @@ func buildReport(si, machine *unstructured.Unstructured, rep Report, raw []byte)
 	}
 	if full.AssetID != "" {
 		spec["assetID"] = full.AssetID
+	}
+	if url := machine.GetAnnotations()[netboxDeviceURLAnnotation]; url != "" {
+		spec["inventoryURL"] = url
+	}
+	if topo := machineTopology(machine, topology); len(topo) > 0 {
+		spec["topology"] = topo
 	}
 	if full.StartedAt != "" {
 		spec["startedAt"] = full.StartedAt
@@ -197,6 +203,19 @@ func buildReport(si, machine *unstructured.Unstructured, rep Report, raw []byte)
 	return r, nil
 }
 
+// machineTopology reads the configured topology names from the Machine's labels. Missing ones are
+// left out.
+func machineTopology(machine *unstructured.Unstructured, topology []TopologyLabel) map[string]any {
+	out := map[string]any{}
+	labels := machine.GetLabels()
+	for _, t := range topology {
+		if v := labels[t.MachineLabel]; v != "" {
+			out[t.Name] = v
+		}
+	}
+	return out
+}
+
 func toAny(ss []string) []any {
 	out := make([]any, len(ss))
 	for i, s := range ss {
@@ -237,9 +256,11 @@ func (r *Reconciler) createReport(ctx context.Context, report *unstructured.Unst
 	return r.pruneReports(ctx, report.GetLabels()[labelMachine])
 }
 
-// pruneReports keeps the newest Config.KeepReports reports of one machine. 0 keeps all.
+// pruneReports keeps a machine's newest Config.KeepReports reports (0 keeps any number) and drops
+// those finished more than Config.MaxReportAge ago (0 keeps any age). The newest report is always
+// kept, whatever its age: it is the machine's current state, which gates and dashboards read.
 func (r *Reconciler) pruneReports(ctx context.Context, machineLabel string) error {
-	if r.Config.KeepReports <= 0 {
+	if r.Config.KeepReports <= 0 && r.Config.MaxReportAge <= 0 {
 		return nil
 	}
 	list := newList(ReportGVK)
@@ -247,11 +268,17 @@ func (r *Reconciler) pruneReports(ctx context.Context, machineLabel string) erro
 		return err
 	}
 	items := list.Items
-	if len(items) <= r.Config.KeepReports {
-		return nil
-	}
 	sort.Slice(items, func(i, j int) bool { return reportTime(&items[i]) > reportTime(&items[j]) })
-	for i := r.Config.KeepReports; i < len(items); i++ {
+	cutoff := ""
+	if r.Config.MaxReportAge > 0 {
+		cutoff = r.now().Add(-r.Config.MaxReportAge).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	for i := 1; i < len(items); i++ {
+		tooMany := r.Config.KeepReports > 0 && i >= r.Config.KeepReports
+		tooOld := cutoff != "" && reportTime(&items[i]) < cutoff
+		if !tooMany && !tooOld {
+			continue
+		}
 		if err := r.Client.Delete(ctx, &items[i]); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("prune QualificationReport %s: %w", items[i].GetName(), err)
 		}

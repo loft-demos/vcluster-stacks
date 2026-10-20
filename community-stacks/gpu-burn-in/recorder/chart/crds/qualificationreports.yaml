@@ -37,6 +37,10 @@ spec:
         - name: Profile
           type: string
           jsonPath: .spec.profile
+        - name: Rack
+          type: string
+          jsonPath: .spec.topology.rack
+          priority: 1
         - name: Source
           type: string
           jsonPath: .spec.source.kind
@@ -70,6 +74,15 @@ spec:
                 assetID:
                   description: The inventory's name for the machine, when the source knows one.
                   type: string
+                inventoryURL:
+                  description: The machine's page in the inventory, for example its NetBox device.
+                  type: string
+                topology:
+                  description: Where the machine is, by name, for example site, location and rack, so
+                    failures can be grouped by shared power, cooling and network.
+                  type: object
+                  additionalProperties:
+                    type: string
                 source:
                   description: What ran the qualification.
                   type: object
