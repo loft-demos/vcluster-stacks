@@ -34,6 +34,8 @@ type Config struct {
 	// annotations, and the token from the controller's NetBox client.
 	NetBoxAdmitTag     string
 	NetBoxQualifiedTag string
+	// KeepReports is how many QualificationReports to keep per machine. 0 keeps all.
+	KeepReports int
 	// DryRun logs every write instead of making it.
 	DryRun bool
 }

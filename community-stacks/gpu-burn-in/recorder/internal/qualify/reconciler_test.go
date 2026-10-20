@@ -37,7 +37,7 @@ func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	for _, gvk := range []schema.GroupVersionKind{StackInstanceGVK, stackTemplateGVK, nodeClaimGVK, storageMachine,
-		nodeProviderGVK, tenantClusterGVK, managementMachine, bareMetalHost} {
+		nodeProviderGVK, tenantClusterGVK, managementMachine, bareMetalHost, ReportGVK} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -94,6 +94,7 @@ func (f fixture) objects() []client.Object {
 		data["report.failedtests"] = []byte("soak")
 		data["report.summary"] = []byte("soak failed: above 85C: GPU 0 91C")
 		data["report.finishedat"] = []byte("2026-10-20T21:10:00Z")
+		data[reportJSONOutputKey] = []byte(sampleReportJSON)
 	}
 	sm := obj(storageMachine, "", machine, map[string]any{"spec": map[string]any{"providerRef": provider}})
 	annotations := map[string]string{machineNodeClaimAnnotation: ns + "/" + tenant + "-qm92s"}

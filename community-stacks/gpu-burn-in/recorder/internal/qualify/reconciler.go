@@ -2,8 +2,8 @@
 //
 // When a StackInstance of a watched StackTemplate has captured its report task's outputs, the
 // reconciler finds the server the run tested (tenant cluster -> NodeClaims -> the Machines whose
-// node-claim annotation names them), writes the result label and annotations to the Machine or
-// its BareMetalHost, optionally updates the NetBox device, and optionally deletes the tenant
+// node-claim annotation names them), creates a QualificationReport for it, writes the result label
+// and annotations to the Machine or its BareMetalHost, optionally updates the NetBox device, and optionally deletes the tenant
 // cluster to release the server. It must run before the tenant cluster is deleted, because the
 // node-claim annotation disappears with the claim; with releaseServer it does the deletion itself.
 package qualify
@@ -119,6 +119,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	runID := fmt.Sprintf("%s/%s/%s", si.GetNamespace(), si.GetName(), si.GetUID())
 	for i := range machines {
+		// The report first: it is the history, and creating it again is a no-op.
+		qr, err := buildReport(si, &machines[i], report, secret.Data[reportJSONOutputKey])
+		if err != nil {
+			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
+			return ctrl.Result{}, err
+		}
+		if err := r.createReport(ctx, qr); err != nil {
+			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
+			return ctrl.Result{}, err
+		}
 		if err := r.record(ctx, si, &machines[i], report, run, runID); err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
 			return ctrl.Result{}, err

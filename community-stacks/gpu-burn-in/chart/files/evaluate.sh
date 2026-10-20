@@ -10,9 +10,34 @@
 result() {
   details=${3:-}
   [ -n "$details" ] || details='{}'
+  details=$(echo "$details" | jq --arg test "$TEST" "($METRICS)"' as $m | . + {metrics: ($m | with_entries(select(.value != null)))}')
   jq -n --arg status "$1" --arg summary "$2" --argjson details "$details" \
     '{status: $status, summary: $summary, details: $details}' >"$WORK/result.json"
 }
+
+# The metrics contract: a flat object of numbers per test, derived from its details. The report
+# collects them per test, and the recorder publishes them from QualificationReports, so any source
+# of qualification results (another test suite, NICo Machine Validation) can fill the same names.
+METRICS='
+  def sum(f): [f] | add // 0;
+  if $test == "inventory" then
+    {gpus: .gpuCount, allocatable_gpus: .allocatable,
+     uncorrected_ecc_errors: sum(.gpus[]?.uncorrectedECC // 0), inactive_nvlinks: .inactiveNVLinks}
+  elif $test == "dcgmdiag" then
+    {failed_tests: sum(.results[]?.failed // [] | length), skipped_tests: sum(.results[]?.skipped // [] | length),
+     warned_tests: sum(.results[]?.warned // [] | length), level: (.level // "" | tonumber? // null)}
+  elif $test == "nccl" then
+    (.collectives // {} | with_entries({key: "\(.key)_bus_bandwidth_gbps", value: .value.avgBusBandwidthGBps}))
+      + {gpus: .gpus}
+  elif $test == "soak" then
+    {peak_temp_c: ([.telemetry[]?.maxTempC] | max), peak_power_w: ([.telemetry[]?.maxPowerW] | max),
+     gpus_with_xid: sum(.telemetry[]? | select(.lastXid > 0) | 1),
+     throttle_samples: sum(.telemetry[]?.thermalOrPowerThrottleSamples), samples: sum(.telemetry[]?.samples),
+     cycles: .cycles, minutes: .minutes}
+  elif $test == "gpuready" then
+    {allocatable_gpus: .allocatable}
+  else {} end'
+
 
 # DCGM JSON -> {"rc", "parsed", "anyFail", "failed": [names], "skipped": [names], "warned": [names]}.
 # Walks the whole document for test objects with results, so it does not depend on the exact

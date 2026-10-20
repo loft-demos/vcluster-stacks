@@ -481,6 +481,15 @@ spec:
             namespace: gpu-burn-in
             name: gpu-burn-in-report
             jsonPath: '{.data.finishedAt}'
+        # The whole report, for the gpu-burn-in-recorder to turn into a QualificationReport on the
+        # Platform cluster. Not published: it is read from the instance's outputs Secret.
+        - name: reportjson
+          fromResource:
+            apiVersion: v1
+            kind: ConfigMap
+            namespace: gpu-burn-in
+            name: gpu-burn-in-report
+            jsonPath: '{.data.report\.json}'
     - name: verdict
       dependsOn:
         - report

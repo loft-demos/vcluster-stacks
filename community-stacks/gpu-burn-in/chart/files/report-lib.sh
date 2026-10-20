@@ -11,7 +11,7 @@ build_report() {
     [$want[] as $t | ($by[$t] // {test: $t, status: "missing", summary: "no result recorded"}) |
       {test: .test, status: .status, summary: .summary, node: (.node // ""),
        startedAt: (.startedAt // ""), finishedAt: (.finishedAt // ""),
-       details: ((.["details.json"] // "{}") | fromjson? // {})}] as $tests |
+       details: ((.["details.json"] // "{}") | fromjson? // {})} | .metrics = (.details.metrics // {})] as $tests |
     [$tests[] | select(.status != "passed" and .status != "disabled") | .test] as $failed |
     ([$tests[] | select(.test == "inventory") | .details][0] // {}) as $inv |
     {schema: "gpu-burn-in.vcluster.com/v1",

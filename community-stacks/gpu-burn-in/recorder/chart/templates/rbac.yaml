@@ -16,6 +16,10 @@ rules:
   - apiGroups: ["storage.loft.sh"]
     resources: ["stackinstances", "stacktemplates", "nodeclaims", "machines", "nodeproviders"]
     verbs: ["get", "list", "watch"]
+  # The history: one report per run, the oldest pruned past keepReports.
+  - apiGroups: ["qualification.vcluster-stacks.io"]
+    resources: ["qualificationreports"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   # Only get: the controller reads each run's outputs Secret by its name and never lists Secrets.
   - apiGroups: [""]
     resources: ["secrets"]

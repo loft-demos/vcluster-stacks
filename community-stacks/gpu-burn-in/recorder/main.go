@@ -13,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -34,6 +35,7 @@ func main() {
 	flag.StringVar(&netboxTokenFile, "netbox-token-file", "", "File holding a NetBox API token. Empty disables NetBox updates.")
 	flag.StringVar(&cfg.NetBoxAdmitTag, "netbox-admit-tag", "", "NetBox tag removed from a device that fails, the tag that brings it into vCluster Platform.")
 	flag.StringVar(&cfg.NetBoxQualifiedTag, "netbox-qualified-tag", "", "NetBox tag added to a device that passes.")
+	flag.IntVar(&cfg.KeepReports, "keep-reports", 20, "QualificationReports to keep per machine. 0 keeps all.")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Log every write instead of making it.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Metrics address. 0 disables.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Health probe address.")
@@ -95,6 +97,7 @@ func main() {
 		log.Error(err, "set up controller")
 		os.Exit(1)
 	}
+	ctrlmetrics.Registry.MustRegister(&qualify.ReportCollector{Reader: mgr.GetClient()})
 	_ = mgr.AddHealthzCheck("healthz", healthz.Ping)
 	_ = mgr.AddReadyzCheck("readyz", healthz.Ping)
 

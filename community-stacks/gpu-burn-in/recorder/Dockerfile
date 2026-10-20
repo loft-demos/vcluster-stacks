@@ -1,5 +1,7 @@
 # Build from this directory: docker build -t gpu-burn-in-recorder .
-FROM golang:1.26 AS build
+# The build stage runs on the builder's own platform and cross-compiles: Go needs no emulation,
+# which keeps the arm64 image as fast to build as the amd64 one.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

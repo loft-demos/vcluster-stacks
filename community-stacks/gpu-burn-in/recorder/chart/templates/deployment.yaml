@@ -55,6 +55,7 @@ spec:
             {{- with .Values.netbox.qualifiedTag }}
             - --netbox-qualified-tag={{ . }}
             {{- end }}
+            - --keep-reports={{ .Values.keepReports }}
             - --dry-run={{ .Values.dryRun }}
             - --leader-elect={{ .Values.leaderElection }}
             - --zap-log-level={{ .Values.logLevel }}

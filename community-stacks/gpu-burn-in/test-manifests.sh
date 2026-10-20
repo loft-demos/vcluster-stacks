@@ -65,7 +65,7 @@ OUTPUTS_REF = re.compile(r"\.Outputs\.([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)")
 # Keys the steps write with --from-literal, by step. Outputs may read only these.
 WRITTEN = {}
 for script, step in [("gpuready.sh", "gpuready"), ("report.sh", "report")]:
-    WRITTEN[step] = set(re.findall(r"--from-literal=([A-Za-z]+)=", (root / "chart/files" / script).read_text()))
+    WRITTEN[step] = set(re.findall(r"--from-(?:literal|file)=([A-Za-z.]+)=", (root / "chart/files" / script).read_text()))
 WRITTEN["gpuready"] |= set(re.findall(r"--from-literal=([A-Za-z]+)=", (root / "chart/files/lib.sh").read_text()))
 
 
@@ -301,7 +301,7 @@ for i, (name, task) in enumerate(tasks.items()):
         fail(f"{where}: declares outputs, so its name must be letters and digits only")
     for out in task.get("outputs") or []:
         fr = out.get("fromResource") or {}
-        key = fr.get("jsonPath", "")[len("{.data."):-1]
+        key = fr.get("jsonPath", "")[len("{.data."):-1].replace("\\.", ".")
         if fr.get("namespace") != NAMESPACE:
             fail(f"{where}: output {out['name']} reads namespace {fr.get('namespace')}; only {NAMESPACE} is one the Stack deploys into")
         if key not in WRITTEN.get(name, set()):

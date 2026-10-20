@@ -223,6 +223,11 @@ cluster that runs vCluster Platform. When a run's report is captured, it does th
 Each run is recorded once. The Stack parameters `recordResult`, `netboxUpdate` and
 `releaseServer` set what it does per run.
 
+Each run also becomes a `QualificationReport`: a cluster-scoped, never-changed record of one
+qualification of one machine, with each test's status and metrics. It doesn't depend on how the
+tests ran, so NICo Machine Validation or another test suite can fill the same fields. The recorder
+serves Prometheus metrics computed from these reports for dashboards.
+
 See the [recorder README](recorder/README.md) for install, configuration, permissions and
 troubleshooting.
 

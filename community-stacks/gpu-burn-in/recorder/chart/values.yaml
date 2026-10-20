@@ -45,8 +45,21 @@ netbox:
   # Added to a device that passes.
   qualifiedTag: ""
 
+# QualificationReports kept per machine, newest first. 0 keeps all.
+keepReports: 20
+
 # Log every write instead of making it.
 dryRun: false
+
+# Prometheus metrics computed from QualificationReports, on port 8080 at /metrics.
+metrics:
+  service:
+    enabled: true
+  # Needs the Prometheus Operator's ServiceMonitor CRD.
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+    labels: {}
 
 rbac:
   # Grants delete on VirtualClusterInstances, so runs that set releaseServer can delete their

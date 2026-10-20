@@ -15,6 +15,7 @@ each qualification.
 - [Install](#install)
 - [Configure](#configure)
 - [Per-run parameters](#per-run-parameters)
+- [QualificationReport](#qualificationreport)
 - [Verify](#verify)
 - [Permissions](#permissions)
 - [Build](#build)
@@ -36,10 +37,11 @@ The controller watches StackInstances of the `gpu-burn-in` StackTemplate. For ea
    `netbox.vcluster.com/url` annotation. On a failure, the device status becomes `failed` and the
    admit tag is removed; on a pass, the qualified tag is added. Either way, a journal entry gets
    the summary.
-4. **It writes the record.** That's the label `<domain>/result=passed|failed`, plus annotations with
+4. **It creates a QualificationReport**, one per run. See [QualificationReport](#qualificationreport).
+5. **It writes the record.** That's the label `<domain>/result=passed|failed`, plus annotations with
    the profile, finish time, failed tests, summary, report URI and the run. It writes them to the
    Platform Machine or to the Metal3 BareMetalHost.
-5. **It deletes the tenant cluster, if the run asks.** That returns the server to its node provider,
+6. **It deletes the tenant cluster, if the run asks.** That returns the server to its node provider,
    which wipes it.
 
 The record survives the teardown. The Metal3 provider removes only its own project and NodeClaim
@@ -53,6 +55,68 @@ second NetBox journal entry.
 The controller must see the run before the tenant cluster is deleted, because the NodeClaim, and
 the Machine's annotation naming it, go away with the tenant cluster. With `releaseServer`, the
 controller does the deletion itself, after recording.
+
+## QualificationReport
+
+Every recorded run also becomes a `QualificationReport`
+(`qualification.vcluster-stacks.io/v1alpha1`). It's a cluster-scoped record of one qualification
+of one machine, kept beside the vCluster Platform Machine it names. The CRD is in
+[chart/crds/](chart/crds/qualificationreports.yaml).
+
+The report doesn't depend on how the tests ran. The gpu-burn-in Stack fills it through this
+controller, and NICo Machine Validation or another test suite could fill the same fields with no
+tenant cluster at all. That makes it the one source for dashboards, gating and reporting across
+providers.
+
+```bash
+kubectl get qualificationreports
+NAME                                                          MACHINE                                             RESULT   FAILED   PROFILE                    SOURCE   FINISHED
+metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-6ae3ece2   metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge   failed   [...]    nvml-mock-ecc              Stack    3m
+```
+
+| Field | Content |
+| --- | --- |
+| `spec.machineRef`, `providerRef`, `assetID` | The machine qualified |
+| `spec.source` | What ran it: `kind` (`Stack`, `NICoValidation`, `vMetalAgent`, `Other`) and, for a Stack, the StackInstance and template |
+| `spec.result`, `failedTests`, `summary`, `profile` | The verdict and the thresholds it was judged against |
+| `spec.startedAt`, `finishedAt`, `reportURI` | When, and where the full report is stored |
+| `spec.hardware` | Node, GPU model, count, expected count, driver, each GPU's UUID and serial, and DMI |
+| `spec.tests[]` | Each test's name, status, summary, times and `metrics` |
+
+The spec is a record. The API server rejects any change to it, and the labels
+`qualification.vcluster-stacks.io/machine`, `/result`, `/provider`, `/profile` and `/source-kind`
+make reports easy to select. The controller keeps the newest `keepReports` (20) per machine. It
+reads the full report from the report task's `reportjson` output; a Stack without that output
+gives a report without hardware and tests.
+
+Each test's `metrics` is a flat set of named numbers, the same names whatever ran the test:
+
+| Test | Metrics |
+| --- | --- |
+| `gpuready` | `allocatable_gpus` |
+| `inventory` | `gpus`, `allocatable_gpus`, `uncorrected_ecc_errors`, `inactive_nvlinks` |
+| `dcgmdiag` | `level`, `failed_tests`, `skipped_tests`, `warned_tests` |
+| `nccl` | `all_reduce_bus_bandwidth_gbps`, `all_gather_bus_bandwidth_gbps`, `reduce_scatter_bus_bandwidth_gbps`, `gpus` |
+| `soak` | `peak_temp_c`, `peak_power_w`, `gpus_with_xid`, `throttle_samples`, `samples`, `cycles`, `minutes` |
+
+### Metrics
+
+The controller computes Prometheus metrics from the reports on every scrape, at `:8080/metrics`.
+The chart creates a Service for this, and with `metrics.serviceMonitor.enabled` a ServiceMonitor.
+All metrics describe each machine's latest report, except `gpu_qualification_reports`:
+
+| Metric | Labels | Value |
+| --- | --- | --- |
+| `gpu_qualification_result` | `machine`, `provider`, `profile`, `source`, `result` | 1 |
+| `gpu_qualification_passed` | `machine`, `provider`, `profile` | 1 passed, 0 not |
+| `gpu_qualification_finished_timestamp_seconds` | `machine`, `provider` | Finish time |
+| `gpu_qualification_gpus` | `machine`, `kind` (`found`, `expected`) | GPU count |
+| `gpu_qualification_test_status` | `machine`, `test`, `status` | 1 |
+| `gpu_qualification_test_metric` | `machine`, `test`, `metric` | The measurement |
+| `gpu_qualification_reports` | `machine`, `result` | Reports kept, for history |
+
+For example, servers that are not qualified: `gpu_qualification_passed == 0`. Peak soak temperature
+per server: `gpu_qualification_test_metric{test="soak",metric="peak_temp_c"}`.
 
 ## Requirements
 
@@ -116,6 +180,8 @@ Chart values hold the settings shared by every run.
 | `netbox.tokenSecret.name`, `.key` | empty, `token` | Secret with the NetBox API token. Without it, runs that set `netboxUpdate` skip NetBox |
 | `netbox.admitTag` | empty | Tag removed from a device that fails: the tag that brings it into vCluster Platform |
 | `netbox.qualifiedTag` | empty | Tag added to a device that passes |
+| `keepReports` | `20` | QualificationReports kept per machine. `0` keeps all |
+| `metrics.service.enabled`, `metrics.serviceMonitor.enabled` | `true`, `false` | Service and ServiceMonitor for `/metrics` |
 | `dryRun` | `false` | Log writes instead of making them |
 | `rbac.releaseServer` | `true` | Grant delete on VirtualClusterInstances, for runs that set `releaseServer` |
 | `replicas`, `leaderElection` | `1`, `false` | More than one replica needs leader election |
@@ -177,6 +243,7 @@ The chart's ClusterRole gives the controller only what it uses:
 | Access | Why |
 | --- | --- |
 | `get`, `list`, `watch` StackInstances, StackTemplates, NodeClaims, Machines and NodeProviders (`storage.loft.sh`) | The run, its parameter defaults, the claim, the server and its provider |
+| `get`, `list`, `watch`, `create`, `delete` QualificationReports | Create one per run, prune past `keepReports`, compute metrics |
 | `get` Secrets | The run's outputs Secret, by name. The controller never lists Secrets |
 | `get`, `patch` Machines (`management.loft.sh`) | `machine` target |
 | `get`, `patch` BareMetalHosts (`metal3.io`) | `bmh` target with `localCluster` |
