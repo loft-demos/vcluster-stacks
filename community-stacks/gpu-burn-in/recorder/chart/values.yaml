@@ -1,0 +1,67 @@
+# Install on the cluster that runs vCluster Platform, in any namespace. The controller reads
+# Platform storage objects there and writes through the Platform management API.
+
+image:
+  repository: ghcr.io/loft-sh/vcluster-stacks/gpu-burn-in-recorder
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# StackTemplates whose instances are recorded.
+templates:
+  - gpu-burn-in
+
+# Domain of the result label (<domain>/result) and annotations. Use one your organization owns.
+# Never a vcluster.com or loft.sh domain: newer Platform builds keep labels in those domains out of
+# NodeType selection, and the controller refuses them.
+labelDomain: gpu-qualification.example.com
+
+# Where to record:
+#   machine  the vCluster Platform Machine, through the management API. Provider-neutral (Metal3 and
+#            NICo). Needs a Platform build that lets users label Machines; earlier builds, including
+#            4.13.0-alpha.19, reject every Machine write.
+#   bmh      the Metal3 BareMetalHost, on the cluster its NodeProvider's clusterRef names. Works on
+#            any build; the Platform mirrors the label to the Machine.
+target: machine
+
+# bmh only. The Platform name of this cluster: a Metal3 provider whose clusterRef names it is
+# written with the controller's own credentials, and the chart grants it BareMetalHost access.
+localCluster: ""
+# bmh only. A Secret with one kubeconfig per other cluster, the key named after the Platform
+# cluster, for example spark-cluster. Each needs get and patch on baremetalhosts.metal3.io.
+clusterKubeconfigs:
+  existingSecret: ""
+
+netbox:
+  # A Secret with the NetBox API token. Without it, runs that set netboxUpdate skip NetBox.
+  tokenSecret:
+    name: ""
+    key: token
+  # Removed from a device that fails: the tag that brings the device into vCluster Platform.
+  admitTag: ""
+  # Added to a device that passes.
+  qualifiedTag: ""
+
+# Log every write instead of making it.
+dryRun: false
+
+rbac:
+  # Grants delete on VirtualClusterInstances, so runs that set releaseServer can delete their
+  # tenant cluster. Without it, releaseServer fails with Forbidden.
+  releaseServer: true
+
+replicas: 1
+# Needed for more than one replica.
+leaderElection: false
+logLevel: info
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -101,6 +101,10 @@ spec:
       label: Maximum GPU Temperature (C)
       type: number
       defaultValue: '90'
+    - variable: dcgmHost
+      label: DCGM Host Engine
+      description: host:port of the shared DCGM host engine when telemetry is on. Empty starts one in the test pod.
+      type: string
     - variable: readyWaitSeconds
       label: GPU Ready Wait (seconds)
       type: number
@@ -173,6 +177,7 @@ spec:
             soakMinutes: {{ .Values.soakMinutes | toString | quote }}
             soakLoad: {{ .Values.soakLoad | quote }}
             maxGPUTempC: {{ .Values.maxGPUTempC | toString | quote }}
+            dcgmHost: {{ .Values.dcgmHost | quote }}
             readyWaitSeconds: {{ .Values.readyWaitSeconds | toString | quote }}
             runTimeoutSeconds: {{ .Values.runTimeoutSeconds | toString | quote }}
             tests: {{ .Values.tests | quote }}

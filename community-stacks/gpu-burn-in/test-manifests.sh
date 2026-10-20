@@ -9,7 +9,7 @@
 # takes the other branch of every conditional. Then runs the pass/fail unit tests in
 # tests/evaluate-test.sh.
 #
-# Needs bash >= 4, python3 with PyYAML, helm, jq and sh. Exits 1 on failures, 2 on a missing
+# Needs bash >= 4, python3 with PyYAML, helm, jq, sh and, for the recorder, go. Exits 1 on failures, 2 on a missing
 # prerequisite.
 set -euo pipefail
 
@@ -351,7 +351,7 @@ VARIANTS = {
     "defaults": {},
     "nvml-mock": {"runDCGMDiag": "false", "runNCCL": "false", "soakLoad": "none", "soakMinutes": "5",
                   "driverPreinstalled": "true", "expectedGPUs": "4", "gpuModel": "B200"},
-    "no-soak": {"soakMinutes": "0", "reportS3URI": "s3://bucket/q", "s3CredentialsSecret": "s3"},
+    "no-soak": {"soakMinutes": "0", "reportS3URI": "s3://bucket/q", "s3CredentialsSecret": "s3", "telemetry": "false"},
 }
 GPUS_SEEN = "7"  # what gpuready "observed": deliberately not expectedGPUs
 for variant, overrides in VARIANTS.items():
@@ -381,8 +381,9 @@ for variant, overrides in VARIANTS.items():
                 hv = yaml.safe_load(spec_r["spec"]["source"]["helm"]["values"])
                 if hv["driver"]["enabled"] is (values["driverPreinstalled"] == "true"):
                     fail(f"{where}: driver.enabled={hv['driver']['enabled']} with driverPreinstalled={values['driverPreinstalled']}")
-                if hv["dcgm"]["enabled"] or hv["dcgmExporter"]["enabled"]:
-                    fail(f"{where}: DCGM and dcgm-exporter must stay off; the diagnostics need the GPUs to themselves")
+                want = values["telemetry"] != "false"
+                if hv["dcgm"]["enabled"] is not want or hv["dcgmExporter"]["enabled"] is not want:
+                    fail(f"{where}: DCGM and dcgm-exporter must both follow telemetry={values['telemetry']}")
             continue
         if passed.get("test") != name:
             fail(f"{where}: passes test={passed.get('test')!r}; each task runs the step of its own name")
@@ -429,6 +430,13 @@ for variant, overrides in VARIANTS.items():
         want = "false" if values["soakMinutes"] == "0" else "true"
         if jobs["soak"]["env"]["ENABLED"] != want:
             fail(f"task soak ({variant}): ENABLED={jobs['soak']['env']['ENABLED']} with soakMinutes={values['soakMinutes']}")
+    # With telemetry the DCGM tests share the GPU Operator's host engine; without it they start their own.
+    for name in ("dcgmdiag", "soak"):
+        if name in jobs:
+            want = "" if values["telemetry"] == "false" else "nvidia-dcgm.gpu-operator.svc:5555"
+            got = {e["name"]: e.get("value") for e in jobs[name]["pod"].get("initContainers", [{}])[-1].get("env", [])}.get("DCGM_HOST", jobs[name]["env"].get("DCGM_HOST"))
+            if got != want:
+                fail(f"task {name} ({variant}): DCGM_HOST={got!r} with telemetry={values['telemetry']}, want {want!r}")
     for name, var in (("dcgmdiag", "runDCGMDiag"), ("nccl", "runNCCL")):
         if name in jobs and jobs[name]["env"]["ENABLED"] != values[var]:
             fail(f"task {name} ({variant}): ENABLED={jobs[name]['env']['ENABLED']} with {var}={values[var]}")
@@ -531,4 +539,24 @@ CHECKS
 
 sh "$root/tests/evaluate-test.sh" >"$work/evaluate.log" || { cat "$work/evaluate.log"; status=1; }
 tail -n 1 "$work/evaluate.log"
+
+# The recorder controller and its chart.
+helm lint --quiet "$root/recorder/chart" >/dev/null || { helm lint "$root/recorder/chart"; status=1; }
+for args in "" "--set target=bmh --set localCluster=loft-cluster --set clusterKubeconfigs.existingSecret=c --set netbox.tokenSecret.name=n"; do
+  # shellcheck disable=SC2086
+  helm template r "$root/recorder/chart" $args >/dev/null || { echo "FAIL recorder chart does not render with: ${args:-defaults}" >&2; status=1; }
+done
+for bad in "labelDomain=gpu.vcluster.com" "target=nodes" "replicas=2"; do
+  if helm template r "$root/recorder/chart" --set "$bad" >/dev/null 2>&1; then
+    echo "FAIL recorder chart accepts $bad" >&2
+    status=1
+  fi
+done
+if command -v go >/dev/null; then
+  (cd "$root/recorder" && test -z "$(gofmt -l .)" && go vet ./... && go test ./... >"$work/go.log") ||
+    { cat "$work/go.log" 2>/dev/null; echo "FAIL recorder: gofmt, go vet or go test" >&2; status=1; }
+  tail -n 1 "$work/go.log" 2>/dev/null
+else
+  echo "skip recorder Go checks: go not installed" >&2
+fi
 exit "$status"

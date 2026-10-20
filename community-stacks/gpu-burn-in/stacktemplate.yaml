@@ -6,7 +6,8 @@
 # are one chart (chart/, read from Git) deployed once per task by gpu-burn-in-test.
 #
 # Tasks run one after another, because GPU tests interfere with each other's measurements:
-#   gpu-operator  the NVIDIA GPU Operator, without DCGM or dcgm-exporter (the tests run their own)
+#   gpu-operator  the NVIDIA GPU Operator; with telemetry, its DCGM and dcgm-exporter feed the
+#                 Fleet Observability dashboards and the DCGM tests share that host engine
 #   gpuready      waits for allocatable nvidia.com/gpu and publishes the count as an output
 #   inventory     nvidia-smi: GPU count, model, uncorrected ECC, NVLink link state, DMI identity
 #   dcgmdiag      dcgmi diag -r <level>, plus optional named tests such as nvbandwidth
@@ -175,11 +176,40 @@ spec:
       description: Optional endpoint URL for an S3-compatible store.
       type: string
       section: Report
+    - variable: recordResult
+      label: Record The Result
+      description: Lets the gpu-burn-in-recorder controller, if installed, record the result on the server's
+        Machine or BareMetalHost. No effect without the controller.
+      type: boolean
+      defaultValue: 'true'
+      section: Recording
+    - variable: netboxUpdate
+      label: Update NetBox
+      description: Lets the recorder also update the server's NetBox device. A failure sets the device status to
+        failed and removes the tag that brings it into vCluster Platform.
+      type: boolean
+      defaultValue: 'false'
+      section: Recording
+    - variable: releaseServer
+      label: Release The Server When Recorded
+      description: Lets the recorder delete this tenant cluster once the result is recorded, which returns the
+        server to its node provider.
+      type: boolean
+      defaultValue: 'false'
+      section: Recording
     - variable: driverPreinstalled
       label: NVIDIA Driver Preinstalled
       description: Enable when the node image already contains the NVIDIA driver.
       type: boolean
       defaultValue: 'false'
+      section: GPU Operator
+    - variable: telemetry
+      label: DCGM Telemetry During Burn-In
+      description: Runs standalone DCGM and dcgm-exporter, so the burn-in shows on the Fleet Observability GPU
+        dashboards. The DCGM tests run through that host engine and pause its profiling metrics while they run.
+        Disable to give each test a private host engine and export nothing.
+      type: boolean
+      defaultValue: 'true'
       section: GPU Operator
     - variable: gpuOperatorVersion
       label: GPU Operator Version
@@ -255,6 +285,7 @@ spec:
           version: '{{ .Values.gpuOperatorVersion }}'
           project: '{{ .Values.argoProject }}'
           driverPreinstalled: '{{ .Values.driverPreinstalled | toString }}'
+          telemetry: '{{ .Values.telemetry | toString }}'
     # The GPU Operator Application is Healthy long before a driver is loaded and the device plugin
     # advertises GPUs. This step waits up to readyWaitSeconds for that.
     - name: gpuready
@@ -311,6 +342,7 @@ spec:
           repoURL: '{{ .Values.chartRepoURL }}'
           revision: '{{ .Values.chartRevision }}'
           test: dcgmdiag
+          dcgmHost: '{{ if eq (.Values.telemetry | toString) "false" }}{{ else }}nvidia-dcgm.gpu-operator.svc:5555{{ end }}'
           enabled: '{{ .Values.runDCGMDiag | toString }}'
           gpus: '{{ .Outputs.gpuready.gpus }}'
           stopOnFailure: '{{ .Values.stopOnFailure | toString }}'
@@ -354,6 +386,7 @@ spec:
           repoURL: '{{ .Values.chartRepoURL }}'
           revision: '{{ .Values.chartRevision }}'
           test: soak
+          dcgmHost: '{{ if eq (.Values.telemetry | toString) "false" }}{{ else }}nvidia-dcgm.gpu-operator.svc:5555{{ end }}'
           enabled: '{{ if gt (int .Values.soakMinutes) 0 }}true{{ else }}false{{ end }}'
           gpus: '{{ .Outputs.gpuready.gpus }}'
           stopOnFailure: '{{ .Values.stopOnFailure | toString }}'

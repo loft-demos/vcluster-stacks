@@ -56,7 +56,7 @@ gpu-operator -> gpuready -> inventory -> dcgmdiag -> nccl -> soak -> report -> v
 
 | Task | Runs | Image | Timeout | Fails the server when |
 | --- | --- | --- | --- | --- |
-| `gpu-operator` | NVIDIA GPU Operator, without DCGM or dcgm-exporter | NGC chart | `45m0s` | |
+| `gpu-operator` | NVIDIA GPU Operator, with DCGM and dcgm-exporter when `telemetry` is on | NGC chart | `45m0s` | |
 | `gpuready` | Waits up to 40 minutes for allocatable `nvidia.com/gpu` | `alpine/k8s` | `50m0s` | No GPU appears |
 | `inventory` | `nvidia-smi -L`, `--query-gpu`, `topo -m`, `nvlink -s`, DMI | DCGM | `20m0s` | Count differs from `expectedGPUs`, wrong model, uncorrected ECC, inactive NVLink |
 | `dcgmdiag` | `dcgmi diag -r <level> -j`, then `-r <extra tests>` | DCGM | `4h30m0s` | Any DCGM result is Fail; a Skip too with `failOnSkip` |
@@ -107,13 +107,25 @@ GPUs`, and the report says why.
 The tenant cluster has the server to itself, so the tests take every advertised GPU and run one at
 a time.
 
-### DCGM
+### DCGM and burn-in telemetry
 
-The GPU Operator's own DCGM and dcgm-exporter are disabled. DCGM active diagnostics need the GPUs
-to themselves. The exporter's profiling metrics also hold the profiling module the diagnostics use.
-Each DCGM step starts its own `nv-hostengine` inside its pod, on the GPUs the pod was given. The
-`run` container of `dcgmdiag` and `soak` adds `SYS_ADMIN`, as NVIDIA's DCGM container instructions
-do.
+With `telemetry: true`, the default, the GPU Operator runs its standalone DCGM host engine
+(`nvidia-dcgm`) and `dcgm-exporter`. Temperature, power, utilization, XIDs, ECC and clocks then
+stream to the Fleet Observability GPU dashboards for the whole burn-in. The DCGM steps run through
+that same engine with `dcgmi --host nvidia-dcgm.gpu-operator.svc:5555`, so diagnostics and
+telemetry never compete for the GPUs through two engines.
+
+The one conflict is profiling. Active diagnostics and load need DCGM's profiling module, which
+the exporter's `DCGM_FI_PROF_*` metrics hold. Each DCGM step pauses profiling with
+`dcgmi profile --pause` and resumes it when the step ends. The dashboards' tensor, graphics-engine,
+DRAM and PCIe-throughput panels go blank during a diagnostic or a load cycle; every other metric
+keeps reporting.
+
+With `telemetry: false`, neither runs. Each DCGM step starts its own `nv-hostengine` inside its pod,
+on the GPUs the pod was given, and nothing is exported.
+
+The `run` container of `dcgmdiag` and `soak` adds `SYS_ADMIN`, as NVIDIA's DCGM container
+instructions do.
 
 ## Qualify and quarantine servers
 
@@ -121,31 +133,37 @@ The Stack produces evidence. It does not decide which servers customers get. Tha
 pieces, both outside the Stack.
 
 **1. Record the result on the inventory.** The tenant cluster is temporary, so its Node object is
-not a durable record. [automation/record-qualification.sh](automation/record-qualification.sh)
-reads the report and writes it where the provisioning path looks:
+not a durable record. The result has to land where the provisioning path looks. There are two
+ways to write it there:
+
+- **The [recorder controller](#the-recorder-controller)**, installed once on the vCluster Platform
+  cluster. It records every run as its report is captured, and can also update NetBox and delete
+  the tenant cluster. This is the way to run qualification at scale.
+- **[automation/record-qualification.sh](automation/record-qualification.sh)**, run by hand per
+  qualification. It is a dry run unless you pass `--apply`.
+
+Both write the same record:
 
 - **The label:** `gpu-qualification.example.com/result=passed|failed`, plus annotations with the
-  profile, time, failed tests, summary and report URI. Set `LABEL_DOMAIN` to a domain your
-  organization owns. Never use a `vcluster.com` or `loft.sh` domain: newer Platform builds keep
-  labels in those domains out of NodeType selection, and the script refuses them.
-- **`--machine`, the vCluster Platform Machine:** the preferred target where it works. The Machine
-  is provider-neutral, covering Metal3 and NICo, and lives on the management API, so the
-  automation needs no credentials for the cluster that runs Metal3. NodeType selection merges
-  Machine labels with the host's labels. This needs a Platform build that lets users label
-  Machines. Earlier builds, including 4.13.0-alpha.19, reject every Machine write, so use `--bmh`
-  there.
-- **`--bmh`, the Metal3 BareMetalHost:** works on any build, and the Platform mirrors its labels to
-  the Machine.
+  profile, time, failed tests, summary and report URI. Set the domain to one your organization
+  owns (`labelDomain` for the controller, `LABEL_DOMAIN` for the script). Never use a
+  `vcluster.com` or `loft.sh` domain: newer Platform builds keep labels in those domains out of
+  NodeType selection, and both tools refuse them.
+- **On the Machine (`machine`):** the preferred target where it works. The vCluster Platform
+  Machine is provider-neutral, covering Metal3 and NICo, and lives on the management API, so
+  nothing needs credentials for the cluster that runs Metal3. NodeType selection merges Machine
+  labels with the host's labels. This needs a Platform build that lets users label Machines.
+  Earlier builds, including 4.13.0-alpha.19, reject every Machine write, so use `bmh` there.
+- **On the BareMetalHost (`bmh`):** works on any build, and the Platform mirrors its labels to the
+  Machine.
 - **Either way the record survives the teardown.** When the tenant cluster is deleted, the Metal3
   provider removes only its own project and NodeClaim labels. The qualification label and
   annotations stay, even after the host is wiped and returned to `available`.
 - **NetBox, optionally:**
-  - On a failure, the script sets the device status to `failed` and removes the tag that brings
-    the device into vCluster Platform.
-  - On a pass, it adds a qualified tag.
-  - Either way, it adds a journal entry with the summary.
-
-It is a dry run unless you pass `--apply`.
+  - On a failure, the device status is set to `failed`, and the tag that brings the device into
+    vCluster Platform is removed.
+  - On a pass, a qualified tag is added.
+  - Either way, a journal entry gets the summary.
 
 **2. Enforce it.** A label alone does not stop allocation. Require it in the BareMetalHost selector
 of every production NodeType, and point the qualification NodeType at hosts without it:
@@ -179,10 +197,72 @@ The lifecycle is:
 1. A new or repaired server is unlabeled, so only the qualification NodeType selects it.
 2. Create a tenant cluster from **GPU Burn-In - Private Node** with `nodeTypeValue:
    b300-qualification`.
-3. Wait for the Stack. Then run `record-qualification.sh --save-report <file> --apply`.
-4. Delete the tenant cluster. The server is wiped and becomes `available`.
+3. The recorder writes the result when the report is captured. With `releaseServer: true` it then
+   deletes the tenant cluster. Without the recorder, run `record-qualification.sh --apply` and
+   delete the tenant cluster yourself.
+4. The server is wiped and becomes `available`.
 5. A passed server is now visible to production NodeTypes. A failed one stays out until it is
    repaired and passes again.
+
+### The recorder controller
+
+[recorder/](recorder/) is a small controller with its own Helm chart,
+[recorder/chart/](recorder/chart/). Install it on the cluster that runs vCluster Platform. For
+each StackInstance of `gpu-burn-in`, it works like this:
+
+1. It waits until the `report` task is Healthy and its outputs are captured in the instance's
+   outputs Secret, `stack-outputs-<instance>`.
+2. It finds the server the run tested. The tenant cluster's NodeClaims lead to the Machines whose
+   `machines.vcluster.com/node-claim` annotation names them. No `assetID` is needed, and the
+   controller cannot record on the wrong server.
+3. It writes the label and annotations to the Machine or its BareMetalHost. With `netboxUpdate`,
+   it first updates the device that the Machine's `netbox.vcluster.com/url` annotation names.
+4. With `releaseServer`, it deletes the tenant cluster.
+
+It records each run once. The target carries a `<domain>/run` annotation naming the
+StackInstance, and the controller skips a target that already has it. NetBox is written before the
+target, so a run that fails partway is retried until the target records it.
+
+Three Stack parameters set what it does per run: `recordResult` (default `true`), `netboxUpdate`
+(default `false`) and `releaseServer` (default `false`). Settings shared by every run are chart
+values: the label domain, the target, the NetBox token and tags, and the kubeconfigs for other
+clusters.
+
+Install, from the repository root:
+
+```bash
+# On a Platform build that lets users label Machines:
+helm upgrade --install gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
+  --namespace gpu-burn-in-recorder --create-namespace \
+  --set labelDomain=gpu-qualification.example.com
+
+# On 4.13 and earlier, record on the BareMetalHost. A Metal3 provider whose clusterRef is another
+# Platform cluster needs a kubeconfig for it, in a Secret keyed by the cluster's name:
+kubectl -n gpu-burn-in-recorder create secret generic recorder-clusters \
+  --from-file=spark-cluster=spark-cluster.kubeconfig
+helm upgrade --install gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
+  --namespace gpu-burn-in-recorder --create-namespace \
+  --set target=bmh --set localCluster=loft-cluster \
+  --set clusterKubeconfigs.existingSecret=recorder-clusters
+```
+
+Notes:
+
+- **Kubeconfigs need a static credential.** A kubeconfig from `vcluster platform connect cluster`
+  authenticates through the `vcluster` CLI, which the controller image does not have. Use one
+  with a token, such as a Platform access key or a ServiceAccount token on that cluster, with
+  `get` and `patch` on `baremetalhosts.metal3.io`.
+- **NetBox:** create a Secret with the API token, then set `netbox.tokenSecret.name`,
+  `netbox.admitTag` and `netbox.qualifiedTag`.
+- **Start with `dryRun: true`.** The controller then logs every write it would make, including the
+  tenant cluster deletion.
+- **RBAC:** the controller reads Platform storage objects, may `get` but never list Secrets, and
+  writes only Machines, BareMetalHosts on the local cluster, Events, and, with
+  `rbac.releaseServer`, deletes VirtualClusterInstances.
+- **The image:** `ghcr.io/loft-sh/vcluster-stacks/gpu-burn-in-recorder` is not published yet.
+  Build it from [recorder/Dockerfile](recorder/Dockerfile), or run the controller from your
+  workstation: `go run ./community-stacks/gpu-burn-in/recorder --dry-run` uses your current
+  kubeconfig context, which must point at the Platform cluster.
 
 ## Requirements
 
@@ -217,6 +297,7 @@ The lifecycle is:
 | [example/stackinstance.yaml](example/stackinstance.yaml) | StackInstance with an HGX B300 starting profile |
 | [example/stackinstance-nvml-mock.yaml](example/stackinstance-nvml-mock.yaml) | StackInstance for simulated GPUs |
 | [example/virtualclusterinstance-single-gpu.yaml](example/virtualclusterinstance-single-gpu.yaml) | Tenant cluster qualifying one real workstation GPU |
+| [recorder/](recorder/) | The recorder controller (Go) and its Helm chart, [recorder/chart/](recorder/chart/) |
 | [automation/record-qualification.sh](automation/record-qualification.sh) | Writes a report to a Machine, a BareMetalHost and NetBox |
 | [tests/evaluate-test.sh](tests/evaluate-test.sh) | Unit tests of the pass or fail rules, against [tests/fixtures/](tests/fixtures/) |
 | [tests/nvml-mock-e2e.sh](tests/nvml-mock-e2e.sh) | End-to-end scenarios with injected faults on nvml-mock |
@@ -248,6 +329,8 @@ Set these on the tenant cluster template, which passes the Stack parameters thro
 | `soakLoad` | `dcgm` | `dcgm` loads the GPUs; `none` only records telemetry |
 | `maxGPUTempC` | `90` | The soak fails above this |
 | `reportS3URI`, `s3CredentialsSecret`, `s3Endpoint` | empty | Optional S3 copy of the report |
+| `recordResult`, `netboxUpdate`, `releaseServer` | `true`, `false`, `false` | What the [recorder controller](#the-recorder-controller) does with this run. No effect without it |
+| `telemetry` | `true` | DCGM and dcgm-exporter during the burn-in, for the Fleet Observability dashboards. See [DCGM and burn-in telemetry](#dcgm-and-burn-in-telemetry) |
 | `driverPreinstalled` | `false` | `true` when the node image has the NVIDIA driver |
 | `argoProject`, `chartRepoURL`, `chartRevision` | `default`, this repository, `main` | Where Argo CD reads the step chart |
 | `gpuOperatorVersion`, `toolsImage`, `dcgmImage`, `ncclImage` | see [stacktemplate.yaml](stacktemplate.yaml) | Versions. Renovate tracks them |
@@ -489,8 +572,8 @@ the chart with the resulting Helm values. They assert:
 - Outputs come from the `gpu-burn-in` namespace, from keys the steps write. Every `.Outputs`
   reference reads a declared output of a dependency.
 - Each step renders exactly one Job that runs once. GPU tests request the `gpuready` count rather
-  than `expectedGPUs`. Disabled tests start no NVIDIA container. The GPU Operator keeps DCGM and
-  dcgm-exporter off. `verdict` receives the report's outputs.
+  than `expectedGPUs`. Disabled tests start no NVIDIA container. DCGM and dcgm-exporter follow
+  `telemetry`, and the DCGM steps use the shared host engine exactly when they run. `verdict` receives the report's outputs.
 - The tenant cluster template claims exactly one server and passes every Stack parameter.
 
 They then run [tests/evaluate-test.sh](tests/evaluate-test.sh). It runs the pass or fail rules
@@ -502,12 +585,36 @@ CI also runs a server-side dry run of every manifest against vCluster Platform.
 
 ### Tested
 
-Not yet run on a live cluster. The static checks and the unit tests pass. These have not been
-exercised:
+**RTX 2000 Ada, 2026-10-20.** vCluster Platform 4.13.0-alpha.19, a Metal3 bare metal host with
+one RTX 2000 Ada passed through to the server VM, Ubuntu 24.04 with kernel 6.8, and the driver built
+by the GPU Operator. Every step passed, and the Stack went Healthy:
 
-- Any step on real or simulated GPUs, including the DCGM 4.5 JSON layout the fixtures assume.
+| Step | Result |
+| --- | --- |
+| `gpuready` | 1 allocatable `nvidia.com/gpu` |
+| `inventory` | 1 x NVIDIA RTX 2000 Ada Generation |
+| `dcgmdiag` | Level 2 passed: `pcie` and `software` passed, `memory` skipped on this GPU |
+| `nccl` | Passed with one rank. Bus bandwidth is 0 GB/s by definition with one GPU |
+| `soak` | 15 minutes of DCGM load, one cycle, peak 78 C |
+
+That run confirmed several things:
+
+- The DCGM 4.5 JSON evaluation and the outputs chain from `report` to `verdict` work as designed.
+- The recorder controller, run in dry-run mode from a workstation against the live run, found the
+  server from the NodeClaim and read its BareMetalHost on the Metal3 cluster through a kubeconfig.
+- It reacted within seconds of the report's outputs being captured.
+
+That run used the Stack without the telemetry change (each DCGM step had its own host engine).
+
+Not exercised yet:
+
+- `telemetry: true`: diagnostics and the soak through the GPU Operator's `nvidia-dcgm`, and the
+  profiling pause.
+- Any multi-GPU server, NVLink, DCGM levels 3 and 4, or an NCCL bandwidth floor.
+- A failing server on real hardware. The fixtures and nvml-mock cover the failure paths.
 - The `nvml-mock-e2e.sh` scenarios.
-- `record-qualification.sh --apply` against a Machine, a BareMetalHost and NetBox.
+- The recorder writing for real, in-cluster from its image, on either target, and NetBox updates
+  and `releaseServer`. Its unit tests cover these against a fake API server and a fake NetBox.
 - The S3 upload.
 
 ## License

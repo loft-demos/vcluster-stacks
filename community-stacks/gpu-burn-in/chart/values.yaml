@@ -38,6 +38,9 @@ soakMinutes: "60"
 soakLoad: dcgm
 maxGPUTempC: "90"
 
+# DCGM tests: the shared host engine, host:port, when telemetry is on. Empty starts one in the pod.
+dcgmHost: ""
+
 # gpuready: how long to wait for the device plugin to advertise a GPU.
 readyWaitSeconds: "2400"
 # Budget for the test command. The soak computes its own from soakMinutes.

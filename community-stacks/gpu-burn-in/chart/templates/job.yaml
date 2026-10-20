@@ -38,6 +38,8 @@
   value: {{ .Values.ncclMaxBytes | default "1G" | quote }}
 - name: NCCL_MIN_BUS_BW
   value: {{ .Values.ncclMinBusBandwidthGBps | default "0" | toString | quote }}
+- name: DCGM_HOST
+  value: {{ .Values.dcgmHost | default "" | quote }}
 - name: SOAK_MINUTES
   value: {{ include "burnin.soakMinutes" . | quote }}
 - name: SOAK_LOAD

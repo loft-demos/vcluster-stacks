@@ -11,9 +11,9 @@ cd "$WORK"
 start_hostengine || exit 1
 
 # 150 GPU temp, 155 power, 203 GPU util, 230 last XID, 112 clock event (throttle) reasons.
-dcgmi dmon -e 150,155,203,230,112 -d 5000 >dmon.txt 2>&1 &
+dcgm dmon -e 150,155,203,230,112 -d 5000 >dmon.txt 2>&1 &
 dmon=$!
-trap 'kill "$dmon" 2>/dev/null' EXIT
+trap 'kill "$dmon" 2>/dev/null; resume_profiling' EXIT
 
 end=$(($(date +%s) + SOAK_MINUTES * 60))
 cycle=0
@@ -29,7 +29,7 @@ while :; do
   cycle=$((cycle + 1))
   echo "== cycle $cycle: targeted_stress and targeted_power, ${half}s each, ${left}s left"
   rc=0
-  dcgmi diag -r targeted_stress,targeted_power \
+  dcgm diag -r targeted_stress,targeted_power \
     -p "targeted_stress.test_duration=$half;targeted_power.test_duration=$half" -j \
     >"soak-$cycle.json" 2>"soak-$cycle.err" || rc=$?
   echo "$rc" >"soak-$cycle.rc"

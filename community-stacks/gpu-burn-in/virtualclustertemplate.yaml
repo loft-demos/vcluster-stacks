@@ -105,6 +105,12 @@ spec:
       type: boolean
       defaultValue: 'false'
       section: Server
+    - variable: telemetry
+      label: DCGM Telemetry During Burn-In
+      description: Standalone DCGM and dcgm-exporter, so the burn-in shows on the Fleet Observability GPU dashboards.
+      type: boolean
+      defaultValue: 'true'
+      section: Server
     - variable: stopOnFailure
       label: Stop On First Failure
       type: boolean
@@ -176,6 +182,27 @@ spec:
       label: S3 Endpoint
       type: string
       section: Report
+    - variable: recordResult
+      label: Record The Result
+      description: Lets the gpu-burn-in-recorder controller, if installed, record the result on the server's
+        Machine or BareMetalHost. No effect without the controller.
+      type: boolean
+      defaultValue: 'true'
+      section: Recording
+    - variable: netboxUpdate
+      label: Update NetBox
+      description: Lets the recorder also update the server's NetBox device. A failure sets the device status to
+        failed and removes the tag that brings it into vCluster Platform.
+      type: boolean
+      defaultValue: 'false'
+      section: Recording
+    - variable: releaseServer
+      label: Release The Server When Recorded
+      description: Lets the recorder delete this tenant cluster once the result is recorded, which returns the
+        server to its node provider.
+      type: boolean
+      defaultValue: 'false'
+      section: Recording
     - variable: gpuOperatorVersion
       label: GPU Operator Version
       type: string
@@ -259,7 +286,7 @@ spec:
               # carries no template defaults, and an unset value renders as <nil>, which the
               # Stack rejects. An omitted parameter takes the StackTemplate default instead.
               parameters:
-              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
+              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "telemetry" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "recordResult" "netboxUpdate" "releaseServer" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
               {{- if not (kindIs "invalid" (index $.Values $k)) }}
                 {{ $k }}: {{ index $.Values $k | toString | quote }}
               {{- end }}
