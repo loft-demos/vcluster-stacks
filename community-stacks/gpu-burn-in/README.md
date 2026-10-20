@@ -585,8 +585,8 @@ the chart with the resulting Helm values. They assert:
   reference reads a declared output of a dependency.
 - Each step renders exactly one Job that runs once. Disabled tests start no NVIDIA container. DCGM and dcgm-exporter follow
   `telemetry`, and the DCGM steps use the shared host engine exactly when they run. GPU tests run
-  with the NVIDIA runtime class instead of a device plugin request, and Jobs are replaced, not
-  updated, when their spec changes. `verdict` receives the report's outputs.
+  with the NVIDIA runtime class instead of a device plugin request, and no Job asks Argo CD to
+  replace it. `verdict` receives the report's outputs.
 - The tenant cluster template claims exactly one server and passes every Stack parameter.
 
 They check that `record-qualification.sh --create-report` builds a QualificationReport that matches

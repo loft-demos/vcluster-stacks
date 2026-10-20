@@ -18,7 +18,7 @@ QualificationReport, so hand-recorded runs appear in the same history and metric
 - [Configure](#configure)
 - [Per-run parameters](#per-run-parameters)
 - [QualificationReport](#qualificationreport)
-- [GPU Burn-In dashboard](#gpu-burn-in-dashboard)
+- [GPU Burn-In dashboards](#gpu-burn-in-dashboards)
 - [Verify](#verify)
 - [Permissions](#permissions)
 - [Build](#build)
@@ -80,7 +80,8 @@ metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f   metal3-us-va-blacksburg
 
 | Field | Content |
 | --- | --- |
-| `spec.machineRef`, `providerRef`, `assetID` | The machine qualified |
+| `spec.machineRef`, `providerRef`, `assetID`, `inventoryURL` | The machine qualified, and its inventory page (the Machine's NetBox device) |
+| `spec.topology` | Where it is: `site`, `location` and `rack` by default, from the Machine's labels |
 | `spec.source` | What ran it: `kind` (`Stack`, `NICoValidation`, `vMetalAgent`, `Other`) and, for a Stack, the StackInstance and template |
 | `spec.result`, `failedTests`, `summary`, `profile` | The verdict and the thresholds it was judged against |
 | `spec.startedAt`, `finishedAt`, `reportURI` | When, and where the full report is stored |
@@ -89,7 +90,14 @@ metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f   metal3-us-va-blacksburg
 
 The spec is a record. The API server rejects any change to it, and the labels
 `qualification.vcluster-stacks.io/machine`, `/result`, `/provider`, `/profile` and `/source-kind`
-make reports easy to select. The controller keeps the newest `keepReports` (20) per machine. It
+make reports easy to select.
+
+The controller keeps at most `keepReports` (5) reports per machine and drops reports finished more
+than `maxReportAge` (90 days) ago. It always keeps a machine's latest report, whatever its age,
+because that report is the machine's current state, which gates and dashboards read. At about 4 KB a
+report, 10,000 machines with 5 reports each is about 200 MB in the Platform cluster's etcd; lower
+`keepReports` for very large fleets. Long-term history belongs in the S3 copy of each report, and
+long-term trends in Prometheus. It
 reads the full report from the report task's `reportjson` output; a Stack without that output
 gives a report without hardware and tests.
 
@@ -108,44 +116,68 @@ whatever ran the test. Disabled, skipped and errored tests carry none.
 
 The controller computes Prometheus metrics from the reports on every scrape, at `:8080/metrics`.
 The chart creates a Service for this, and with `metrics.serviceMonitor.enabled` a ServiceMonitor.
-All metrics describe each machine's latest report, except `gpu_qualification_reports`:
 
-| Metric | Labels | Value |
+Every per-machine metric describes the machine's latest report and carries the same identity
+labels: `machine`, `provider`, `profile`, `gpu_model`, and the topology names (`site`, `location`,
+`rack` by default). Any panel can group or filter by them without a join. Series grow with
+machines, not history: about 20 per machine, so roughly 200,000 at 10,000 machines.
+
+| Metric | Extra labels | Value |
 | --- | --- | --- |
-| `gpu_qualification_result` | `machine`, `provider`, `profile`, `source`, `result` | 1 |
-| `gpu_qualification_passed` | `machine`, `provider`, `profile` | 1 passed, 0 not |
-| `gpu_qualification_finished_timestamp_seconds` | `machine`, `provider` | Finish time |
-| `gpu_qualification_gpus` | `machine`, `kind` (`found`, `expected`) | GPU count |
-| `gpu_qualification_test_status` | `machine`, `test`, `status` | 1 |
-| `gpu_qualification_test_metric` | `machine`, `test`, `metric` | The measurement |
-| `gpu_qualification_reports` | `machine`, `result` | Reports kept, for history |
+| `gpu_qualification_result` | `source`, `result` | 1 |
+| `gpu_qualification_passed` | | 1 passed, 0 not |
+| `gpu_qualification_finished_timestamp_seconds` | | Finish time |
+| `gpu_qualification_gpus` | `kind` (`found`, `expected`) | GPU count |
+| `gpu_qualification_test_status` | `test`, `status` | 1 |
+| `gpu_qualification_test_metric` | `test`, `metric` | The measurement |
+| `gpu_qualification_failure_info` | `result`, `failed_tests`, `summary` (first 200 characters), `report`, `inventory_url` | 1, for machines whose latest report did not pass |
+| `gpu_qualification_consecutive_failures` | | How many newest kept reports in a row did not pass |
+| `gpu_qualification_reports` | only `machine`, `result` | Reports kept, the history |
 
-For example, servers that are not qualified: `gpu_qualification_passed == 0`. Peak soak temperature
-per server: `gpu_qualification_test_metric{test="soak",metric="peak_temp_c"}`.
+`failure_info` puts text in labels, which is bounded here: it exists only for failing machines.
 
-### GPU Burn-In dashboard
+For example, servers that are not qualified: `gpu_qualification_passed == 0`. Failing servers by
+rack: `count by (site, rack) (gpu_qualification_failure_info)`. Peak soak temperature at p95 per
+GPU model: `quantile by (gpu_model) (0.95, gpu_qualification_test_metric{test="soak",metric="peak_temp_c"})`.
 
-The chart installs a Grafana dashboard, **GPU Burn-In** (uid `gpu-burn-in`), as a ConfigMap
-labeled `grafana_dashboard: "1"` in `vcluster-platform`. vCluster Platform's bundled Grafana loads
-it from there.
+The topology names are a chart value. Each maps a metric label to the Machine label it is read
+from:
+
+```yaml
+topology:
+  site: netbox.vcluster.com/site
+  location: netbox.vcluster.com/location
+  rack: netbox.vcluster.com/rack
+  power_domain: example.com/power-domain   # any Machine label
+```
+
+The defaults are what vCluster Platform's NetBox import puts on every Machine. Missing labels stay
+empty. The dashboards use `site`, `location` and `rack`.
+
+### GPU Burn-In dashboards
+
+The chart installs three Grafana dashboards, as one ConfigMap labeled `grafana_dashboard: "1"` in
+`vcluster-platform`, where vCluster Platform's bundled Grafana loads them. They are built to read
+the same at 10 servers or 10,000: only the Failures dashboard lists servers one by one, and only
+failing ones.
+
+| Dashboard | uid | Shows |
+| --- | --- | --- |
+| GPU Burn-In | `gpu-burn-in` | Fleet aggregates: qualified, not qualified, pass rate, qualified in 24h, stale servers; pass rate by GPU model and site; the racks with the most failures and the tests that fail most; soak temperature and NCCL bandwidth distributions per GPU model, with the 20 hottest and slowest servers |
+| GPU Burn-In: Failures | `gpu-burn-in-failures` | One row per not-qualified server: why, failed tests, rack, how many failures in a row, ECC, XID and temperature, with links to the server dashboard and the inventory; failures by rack, test and GPU model, over time |
+| GPU Burn-In: Server | `gpu-burn-in-server` | One machine: result, placement, why it did not pass, every test and measurement, and its history |
+
+All three filter by provider, profile, GPU model, site and rack.
+
+For another Grafana, set `dashboard.namespace` and `dashboard.labels` to what its dashboard
+sidecar watches, or import the files in `chart/dashboards/`.
 
 vCluster Platform's Grafana lists one Prometheus datasource per cluster and tenant cluster, named
 by generated UUID. The chart finds the right one at install and hides the selector. It prefers the
 control plane datasource of `metrics.fleetObservability.cluster` (`ds-controlplane-<cluster>`),
 where the pushed series land, then Fleet Observability's. Set `dashboard.datasourceUID` to choose
 one yourself. The ConfigMap's `gpu-burn-in.vcluster-stacks.io/datasource` annotation shows which
-was used, or `selectable` when none was found, as with `helm template`. For another Grafana, set `dashboard.namespace` and `dashboard.labels` to what its
-dashboard sidecar watches, or import `chart/dashboards/gpu-burn-in.json`.
-
-It shows, filtered by provider, profile and machine:
-
-- Qualified and not-qualified servers, the pass rate, servers with ECC errors or an XID, and the
-  last qualification.
-- A table of each server's latest result, GPUs found and expected, ECC errors, soak peak
-  temperature and NCCL bandwidth.
-- A matrix of each server's test results.
-- Bars for soak temperature, power and throttling, NCCL bandwidth by collective, and GPU counts.
-- History: servers by result over time, and reports kept per server.
+was used, or `selectable` when none was found, as with `helm template`.
 
 The dashboard queries `gpu_qualification_*` metrics, so they must reach the Prometheus behind that
 Grafana. With Fleet Observability, nothing scrapes the Platform cluster's workloads, so the chart
@@ -167,7 +199,7 @@ helm upgrade gpu-burn-in-recorder community-stacks/gpu-burn-in/recorder/chart \
 ```
 
 With a Prometheus Operator, set `metrics.serviceMonitor.enabled` instead. To change the
-dashboard, edit [dashboards/gen_gpu_burn_in.py](dashboards/gen_gpu_burn_in.py) and rerun it;
+dashboards, edit [dashboards/gen_gpu_burn_in.py](dashboards/gen_gpu_burn_in.py) and rerun it;
 `../test-manifests.sh` fails when the committed JSON is stale or queries a metric the recorder
 doesn't serve.
 
@@ -233,9 +265,10 @@ Chart values hold the settings shared by every run.
 | `netbox.tokenSecret.name`, `.key` | empty, `token` | Secret with the NetBox API token. Without it, runs that set `netboxUpdate` skip NetBox |
 | `netbox.admitTag` | empty | Tag removed from a device that fails: the tag that brings it into vCluster Platform |
 | `netbox.qualifiedTag` | empty | Tag added to a device that passes |
-| `keepReports` | `20` | QualificationReports kept per machine. `0` keeps all |
+| `keepReports`, `maxReportAge` | `5`, `2160h` | Report retention per machine. The latest is always kept. `0` turns a limit off |
+| `topology` | NetBox `site`, `location`, `rack` | Topology names recorded in reports and added to metrics, each from a Machine label |
 | `metrics.service.enabled`, `metrics.serviceMonitor.enabled` | `true`, `false` | Service and ServiceMonitor for `/metrics` |
-| `metrics.fleetObservability.*` | off | Push the metrics to the Fleet gateway: `enabled`, `endpoint`, `cluster`, `authSecret`. See [GPU Burn-In dashboard](#gpu-burn-in-dashboard) |
+| `metrics.fleetObservability.*` | off | Push the metrics to the Fleet gateway: `enabled`, `endpoint`, `cluster`, `authSecret`. See [GPU Burn-In dashboards](#gpu-burn-in-dashboards) |
 | `dashboard.enabled`, `.namespace`, `.labels` | `true`, `vcluster-platform`, `grafana_dashboard: "1"` | The GPU Burn-In dashboard ConfigMap |
 | `dashboard.datasourceUID` | found at install | The Prometheus datasource the dashboard queries |
 | `dryRun` | `false` | Log writes instead of making them |

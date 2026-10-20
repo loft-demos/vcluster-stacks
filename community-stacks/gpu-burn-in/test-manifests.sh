@@ -429,8 +429,8 @@ for variant, overrides in VARIANTS.items():
             run_env = {e["name"]: e.get("value") for e in run["env"]}
             if pod.get("runtimeClassName") != "nvidia" or run_env.get("NVIDIA_VISIBLE_DEVICES") != "all":
                 fail(f"{where}: GPU tests must run with runtimeClassName nvidia and NVIDIA_VISIBLE_DEVICES=all")
-            if job["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-options") != "Replace=true":
-                fail(f"{where}: the Job needs sync-options Replace=true; a changed Job spec cannot be updated in place")
+            if "Replace=true" in str(job["metadata"].get("annotations", {}).get("argocd.argoproj.io/sync-options", "")):
+                fail(f"{where}: sync-options Replace=true makes Argo CD replace completed Jobs, which fails on their selector")
             if not any(t.get("key") == "nvidia.com/gpu" for t in pod.get("tolerations") or []):
                 fail(f"{where}: does not tolerate the GPU taint")
             budget = int({e["name"]: e.get("value") for e in run["env"]}["RUN_TIMEOUT_SECONDS"])

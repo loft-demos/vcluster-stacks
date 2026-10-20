@@ -2,7 +2,10 @@
 {{- $gpuTest := include "burnin.gpuTest" . -}}
 {{- $run := and $gpuTest (ne (toString .Values.enabled) "false") -}}
 {{- $tools := .Values.toolsImage | default "alpine/k8s:1.36.5" -}}
-{{- /* A Job spec is immutable. Changing any value names a new Job, which also re-runs the step. */ -}}
+{{- /* A Job spec is immutable. Changing any value or the chart version names a new Job, which also
+  re-runs the step; bump the chart version when a template change alters the Job spec. Not
+  sync-options Replace=true: Argo CD then replaces completed Jobs, whose controller-set selector
+  makes the replace fail on every retry. */ -}}
 {{- $hash := printf "%s|%s" (toJson .Values) .Chart.Version | sha256sum | trunc 8 -}}
 {{- define "burnin.env" -}}
 - name: TEST
@@ -71,10 +74,6 @@ metadata:
   name: {{ .Release.Name | trunc 50 | trimSuffix "-" }}-{{ $hash }}
   labels:
     {{- include "burnin.labels" . | nindent 4 }}
-  annotations:
-    # A Job spec is immutable. If a chart change alters it without renaming it, replace the Job
-    # instead of failing the sync.
-    argocd.argoproj.io/sync-options: Replace=true
 spec:
   backoffLimit: 0
   template:
