@@ -13,36 +13,24 @@ these steps in order:
    correctness checks and an optional bandwidth floor.
 5. **Soak.** Sustained DCGM `targeted_stress` and `targeted_power` load, for up to 24 hours. It
    samples temperature, power, XID errors and throttle reasons the whole time.
-6. **Report.** Writes a structured pass or fail report to a ConfigMap and, optionally, to S3.
-   The report is also published as Stack outputs.
+6. **Report.** Collects every step's result into one pass or fail report in ConfigMap
+   `gpu-burn-in-report`, and optionally uploads it to S3. The result, failed tests, summary and the
+   full report (`reportjson`) are also published as Stack outputs.
+7. **Verdict.** Fails the Stack unless the report says `passed`.
 
 The Stack reports Healthy only when the server qualified. When it does not, the Stack goes Degraded
 and the message names the failed tests. Either way the report stays readable.
-[automation/record-qualification.sh](automation/record-qualification.sh) then writes the result to
-the server's inventory record: a label and annotations on its Platform Machine or BareMetalHost, and optionally NetBox.
 
-Every server ends labeled passed or failed, then goes back to the pool:
+The result then goes on the server's inventory record: a label and annotations on its Platform
+Machine or BareMetalHost, a `QualificationReport` for history and dashboards, and optionally NetBox.
+The [recorder controller](#the-recorder-controller) does this automatically and can also release
+the server. Without it, run [automation/record-qualification.sh](automation/record-qualification.sh)
+by hand. Every server ends labeled passed or failed, then goes back to the pool:
 
-```mermaid
-flowchart TB
-  claim["<b>Claim the server</b><br/>A temporary tenant cluster<br/>takes it as its only node"]
-  operator["<b>Install the GPU Operator</b><br/>Driver, device plugin, DCGM<br/>and dcgm-exporter"]
-  tests["<b>Run the tests</b><br/>gpuready, inventory, dcgmdiag,<br/>nccl, soak"]
-  report["<b>Write the report</b><br/>Result, failed tests,<br/>measurements, Stack outputs"]
-  record["<b>Record the result</b><br/>Label on the Machine or BareMetalHost,<br/>a QualificationReport, optionally NetBox"]
-  release["<b>Release the server</b><br/>Delete the tenant cluster;<br/>the node provider wipes the server"]
-  passed["<b>Admitted</b><br/>Production NodeTypes select it"]
-  failed["<b>Held back</b><br/>Only the qualification NodeType<br/>selects it until it passes"]
+![The GPU burn-in lifecycle: claim the server, install the GPU Operator, run the tests, write the report, record the result, release the server. A passed server is admitted to production NodeTypes; a failed one is held back.](assets/lifecycle.svg)
 
-  claim --> operator --> tests
-  tests -- "always, pass or fail" --> report
-  report --> record --> release
-  release -- passed --> passed
-  release -- failed --> failed
-```
-
-The recorder controller or `record-qualification.sh` records the result, and the recorder can also
-release the server. See [Qualify and quarantine servers](#qualify-and-quarantine-servers).
+See [Qualify and quarantine servers](#qualify-and-quarantine-servers) for the NodeTypes that keep a
+failed server away from customers.
 
 Everything is built from existing vCluster Platform features: private nodes, Stacks, Argo CD and
 Kubernetes Jobs. The tests run public NVIDIA images. The step logic is a small Helm chart in this
@@ -71,11 +59,7 @@ directory that Argo CD reads from Git.
 
 ## Architecture
 
-```text
-gpu-operator -> gpuready -> inventory -> dcgmdiag -> nccl -> soak -> report -> verdict
-                   |                                                     |
-                   +-- output gpus: the GPU request of every test         +-- outputs: result, failedtests, ...
-```
+![The Stack's tasks in order: gpu-operator, gpuready, then the GPU tests inventory, dcgmdiag, nccl and soak, then report and verdict. gpuready outputs the allocatable GPU count to every GPU test; report publishes the result as Stack outputs.](assets/architecture.svg)
 
 | Task | Runs | Image | Timeout | Fails the server when |
 | --- | --- | --- | --- | --- |

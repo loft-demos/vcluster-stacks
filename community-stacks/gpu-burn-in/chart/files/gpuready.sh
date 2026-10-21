@@ -1,8 +1,9 @@
 #!/bin/sh
 # Tools image. Waits for the device plugin to advertise nvidia.com/gpu, which proves the driver,
 # toolkit and device plugin work, then records how many GPUs are allocatable. The Stack passes
-# that count to every GPU test as its GPU request, so a server with a missing GPU runs its tests
-# (and fails inventory) instead of leaving pods Pending until a timeout.
+# that count to every GPU test, and inventory compares it with nvidia-smi. The tests themselves
+# request no GPUs (they use the NVIDIA runtime class), so a server with an unhealthy GPU runs its
+# tests and fails inventory instead of leaving pods Pending until a timeout.
 #
 # Fewer GPUs than expectedGPUs is not a failure here; inventory judges the count. No GPU at all
 # within READY_WAIT_SECONDS is.
