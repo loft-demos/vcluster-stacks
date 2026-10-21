@@ -116,21 +116,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{RequeueAfter: requeueCapture}, nil
 	}
 
-	machines, err := r.machinesFor(ctx, si)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if len(machines) == 0 {
-		r.event(si, corev1.EventTypeWarning, "NoMachine",
-			fmt.Sprintf("result %s not recorded: no inventory Machine holds a NodeClaim of tenant cluster %s", report.Result, tenantCluster(si)))
-		logger.Info("no Machine for this run; is the server from a provider with an inventory, and is the tenant cluster still there?")
-		return ctrl.Result{}, nil
-	}
-
 	full, err := parseStackReport(secret.Data[reportJSONOutputKey])
 	if err != nil {
 		r.event(si, corev1.EventTypeWarning, "RecordFailed", err.Error())
 		return ctrl.Result{}, err
+	}
+
+	claims, err := r.claimsFor(ctx, si)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	machines, err := r.machinesHolding(ctx, claims)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// A server from a provider without an inventory, such as a cloud VM a Terraform provider creates
+	// per NodeClaim, has no Machine to label. Its run still becomes a QualificationReport, so it shows
+	// in the history and on the dashboards; nothing is labeled and NetBox is not touched.
+	reportOnly := false
+	if len(machines) == 0 {
+		if len(claims) == 0 {
+			r.event(si, corev1.EventTypeWarning, "NoMachine",
+				fmt.Sprintf("result %s not recorded: tenant cluster %s holds no NodeClaim", report.Result, tenantCluster(si)))
+			logger.Info("no NodeClaim for this run; was the tenant cluster deleted before the run was recorded?")
+			return ctrl.Result{}, nil
+		}
+		machines, reportOnly = reportOnlyMachines(claims, full), true
+		r.event(si, corev1.EventTypeNormal, "ReportOnly",
+			fmt.Sprintf("no inventory Machine for tenant cluster %s: recording %d report(s) only, with no label", tenantCluster(si), len(machines)))
 	}
 	group := ""
 	if len(full.Nodes) > 1 {
@@ -148,9 +161,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		// The report first: it is the history, and creating it again is a no-op.
 		qr := buildReport(si, &machines[i], verdict, full, node, group, r.Config.Topology)
+		if reportOnly {
+			qr.SetLabels(mergeLabels(qr.GetLabels(), map[string]string{labelNoInventory: "true"}))
+		}
 		if err := r.createReport(ctx, qr); err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
 			return ctrl.Result{}, err
+		}
+		if reportOnly {
+			continue
 		}
 		if err := r.record(ctx, si, &machines[i], verdict, run, runID); err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
@@ -173,18 +192,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-// machinesFor returns the inventory Machines held by the run's tenant cluster.
-func (r *Reconciler) machinesFor(ctx context.Context, si *unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+// claimsFor returns the NodeClaims of the run's tenant cluster.
+func (r *Reconciler) claimsFor(ctx context.Context, si *unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 	tenant := tenantCluster(si)
 	claims := newList(nodeClaimGVK)
 	if err := r.Client.List(ctx, claims, client.InNamespace(si.GetNamespace())); err != nil {
 		return nil, err
 	}
-	held := map[string]bool{}
+	var out []unstructured.Unstructured
 	for _, c := range claims.Items {
 		if ref, _, _ := unstructured.NestedString(c.Object, "spec", "vClusterRef"); ref == tenant {
-			held[c.GetNamespace()+"/"+c.GetName()] = true
+			out = append(out, c)
 		}
+	}
+	return out, nil
+}
+
+// machinesHolding returns the inventory Machines that hold the given NodeClaims.
+func (r *Reconciler) machinesHolding(ctx context.Context, claims []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	held := map[string]bool{}
+	for _, c := range claims {
+		held[c.GetNamespace()+"/"+c.GetName()] = true
 	}
 	if len(held) == 0 {
 		return nil, nil

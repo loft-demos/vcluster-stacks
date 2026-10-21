@@ -3,12 +3,17 @@
 # us-west1-a/b (as of 2026-10-21).
 #
 # It needs a node template that attaches GPUs, which the public loft-sh/vcluster-auto-nodes-gcp
-# template does not do yet. node-gpu.patch adds it; apply it to a fork and point nodeTemplate
-# below at the fork. The network environment is unchanged and comes from the public repository.
+# template does not do yet. node-gpu.patch adds it to v0.2.0; apply it on a branch of a fork and
+# point nodeTemplate below at it. The network environment comes from the public repository.
 #
-# Before the first run, request V100 quota in the region (NVIDIA_V100_GPUS, and GPUS_ALL_REGIONS
-# for the project). Set up the provider's credentials as for any Google Cloud node provider; see
-# the vcluster-auto-nodes-gcp README.
+# Before the first run:
+#   - Request V100 quota in the region: NVIDIA_V100_GPUS, and GPUS_ALL_REGIONS for the project.
+#   - Give the provider credentials: a Secret in vcluster-platform with GOOGLE_CREDENTIALS (a
+#     service account key with the auto nodes role) and the label
+#     terraform.vcluster.com/provider: auto-nodes-gcp-gpu. See the vcluster-auto-nodes-gcp README.
+#   - Set project to your project ID. Project and region must be concrete: the template rejects
+#     wildcards.
+#   - Create the network: networkenvironment-gcp-v100.yaml, with the same project and region.
 apiVersion: management.loft.sh/v1
 kind: NodeProvider
 metadata:
@@ -23,9 +28,9 @@ spec:
           subPath: environment/infrastructure
     nodeTemplate:
       git:
-        # Your fork, with node-gpu.patch applied.
+        # Your fork, with node-gpu.patch applied on a branch.
         repository: https://github.com/<your-org>/vcluster-auto-nodes-gcp.git
-        revision: gpu
+        branch: gpu
         subPath: node
     nodeTypes:
       - name: n1-standard-8-v100
@@ -36,7 +41,8 @@ spec:
           instance-type: n1-standard-8
           gpu-type: nvidia-tesla-v100
           gpu-count: "1"
+          project: <your-gcp-project>
           region: us-central1
           zone: us-central1-a,us-central1-b,us-central1-c,us-central1-f
-          project: "*"
+          terraform.vcluster.com/credentials: "*"
           vcluster.com/accelerator: v100

@@ -411,3 +411,36 @@ func TestRecordsEachNodeOwnVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A server from a provider without an inventory (a cloud VM per NodeClaim) has no Machine: the run
+// still becomes a report, named like a Machine, and the release still happens. Nothing is labeled.
+func TestRecordsReportOnlyWithoutMachine(t *testing.T) {
+	var objs []client.Object
+	for _, o := range (fixture{result: "failed", params: map[string]any{"releaseServer": "true"}}).objects() {
+		if u, ok := o.(*unstructured.Unstructured); ok && (u.GroupVersionKind() == storageMachine || u.GroupVersionKind() == managementMachine) {
+			continue
+		}
+		if u, ok := o.(*unstructured.Unstructured); ok && u.GroupVersionKind() == nodeClaimGVK && u.GetName() == tenant+"-qm92s" {
+			_ = unstructured.SetNestedField(u.Object, "auto-nodes-gcp-gpu", "spec", "providerRef")
+		}
+		objs = append(objs, o)
+	}
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
+	reconcile(t, newReconciler(c, TargetMachine))
+
+	reports := listReports(t, c)
+	if len(reports) != 1 {
+		t.Fatalf("%d reports, want 1", len(reports))
+	}
+	qr := reports[0]
+	spec := qr.Object["spec"].(map[string]any)
+	if spec["machineRef"] != "auto-nodes-gcp-gpu."+host || spec["providerRef"] != "auto-nodes-gcp-gpu" || spec["result"] != "failed" {
+		t.Fatalf("spec %v", spec)
+	}
+	if qr.GetLabels()[labelNoInventory] != "true" {
+		t.Fatalf("labels %v", qr.GetLabels())
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: tenant}, newObj(tenantClusterGVK)); !apierrors.IsNotFound(err) {
+		t.Fatalf("tenant cluster not released: %v", err)
+	}
+}

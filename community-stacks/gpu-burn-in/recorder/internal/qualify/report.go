@@ -23,13 +23,15 @@ var ReportGVK = schema.GroupVersionKind{Group: "qualification.vcluster-stacks.io
 
 // Labels on every QualificationReport, so reports can be selected per machine and result.
 const (
-	reportGroup         = "qualification.vcluster-stacks.io"
-	labelMachine        = reportGroup + "/machine"
-	labelResult         = reportGroup + "/result"
-	labelProvider       = reportGroup + "/provider"
-	labelSourceKind     = reportGroup + "/source-kind"
-	labelProfile        = reportGroup + "/profile"
-	labelGroup          = reportGroup + "/group"
+	reportGroup     = "qualification.vcluster-stacks.io"
+	labelMachine    = reportGroup + "/machine"
+	labelResult     = reportGroup + "/result"
+	labelProvider   = reportGroup + "/provider"
+	labelSourceKind = reportGroup + "/source-kind"
+	labelProfile    = reportGroup + "/profile"
+	labelGroup      = reportGroup + "/group"
+	// labelNoInventory marks a report of a server with no inventory Machine, recorded report-only.
+	labelNoInventory    = reportGroup + "/no-inventory"
 	reportJSONOutputKey = reportTask + ".reportjson"
 )
 
@@ -85,6 +87,47 @@ func parseStackReport(raw []byte) (stackReport, error) {
 		}
 	}
 	return full, nil
+}
+
+// reportOnlyMachines stands in for the Machines a provider without an inventory does not create:
+// one per node the report names (the report's host when it names none), called
+// <provider>.<node> like an inventory Machine, so reports, metrics and dashboards treat it the same.
+// The provider is the tenant cluster's NodeClaims' provider.
+func reportOnlyMachines(claims []unstructured.Unstructured, full stackReport) []unstructured.Unstructured {
+	provider, _, _ := unstructured.NestedString(claims[0].Object, "spec", "providerRef")
+	var nodes []string
+	for _, n := range full.Nodes {
+		if n.Name != "" {
+			nodes = append(nodes, n.Name)
+		}
+	}
+	if len(nodes) == 0 && full.Host.Name != "" {
+		nodes = []string{full.Host.Name}
+	}
+	if len(nodes) == 0 {
+		for _, c := range claims {
+			nodes = append(nodes, c.GetName())
+		}
+	}
+	out := make([]unstructured.Unstructured, 0, len(nodes))
+	for _, n := range nodes {
+		m := newObj(storageMachine)
+		m.SetName(provider + "." + n)
+		m.Object["spec"] = map[string]any{"providerRef": provider, "displayName": n}
+		out = append(out, *m)
+	}
+	return out
+}
+
+func mergeLabels(a, b map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
 }
 
 // forMachine narrows a run's verdict to one machine. A report with nodes[] gives each node its own

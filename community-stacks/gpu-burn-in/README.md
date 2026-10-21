@@ -496,7 +496,7 @@ NVLink faults, for the GB200 and GB300 profiles, which simulate an NVL72 tray's 
 | --- | --- | --- |
 | `nvml-mock-ctl fabric-health --gpu 1 route_unhealthy` before `inventory` | `failed: inventory`, `NVLink fabric: GPU 1 summary=Unhealthy, route_unhealthy=True` | Verified 2026-10-21 on a simulated GB300 tray: only GPU 1 failed, all four registered in one clique |
 | `nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth`, or a misconfiguration such as `no_partition` | `failed: inventory`, naming the condition | Fixture tests only |
-| `nvml-mock-ctl nvlink-error --gpu 0 100` during the soak | `failed: soak`, `NVLink errors during the soak: GPU 0 +<count>` | Fixture tests only |
+| `nvml-mock-ctl nvlink-error --gpu 0 100` during the soak | `failed: soak`, `NVLink errors during the soak: GPU 0 +<count>` | Verified 2026-10-21 on a simulated GB300 tray: only GPU 0 grew, and inventory passed. The count sums every error counter on every link, which nvml-mock raises together, so it runs into the millions |
 
 ## Test on a single real GPU
 
