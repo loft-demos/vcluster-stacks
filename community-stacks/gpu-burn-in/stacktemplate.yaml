@@ -74,6 +74,14 @@ spec:
       description: Case-insensitive substring every GPU name must contain, for example B300. Empty skips the check.
       type: string
       section: Server
+    - variable: nvlinkFabric
+      label: NVLink Fabric
+      description: auto checks the NVLink fabric of GPUs that report one (GB200 and GB300 NVL trays) and
+        skips the rest. required also fails GPUs with no fabric attachment. off skips the check.
+      type: string
+      options: [auto, required, "off"]
+      defaultValue: auto
+      section: Server
     - variable: assetID
       label: Asset ID
       description: How the inventory knows this server, for example its BareMetalHost or NetBox device name.
@@ -159,6 +167,14 @@ spec:
       type: number
       defaultValue: '90'
       section: Tests
+    - variable: maxNVLinkErrors
+      label: Maximum NVLink Errors
+      description: The soak fails when a GPU's NVLink replay, recovery and CRC error counters grow by more than
+        this during the soak.
+      type: number
+      defaultValue: '0'
+      min: 0
+      section: Tests
     - variable: reportS3URI
       label: Report S3 URI
       description: Optional, for example s3://gpu-reports/qualification. The report lands at
@@ -202,6 +218,13 @@ spec:
       description: Enable when the node image already contains the NVIDIA driver.
       type: boolean
       defaultValue: 'false'
+      section: GPU Operator
+    - variable: driverVersion
+      label: NVIDIA Driver Version
+      description: The driver the GPU Operator builds, for example 580.126.20. Empty uses the GPU Operator release's
+        default. Pin a 580 driver for Volta (V100), which newer branches do not support. Ignored when the driver
+        is preinstalled.
+      type: string
       section: GPU Operator
     - variable: nvmlMock
       label: Simulated GPUs (nvml-mock)
@@ -292,6 +315,7 @@ spec:
           version: '{{ .Values.gpuOperatorVersion }}'
           project: '{{ .Values.argoProject }}'
           driverPreinstalled: '{{ .Values.driverPreinstalled | toString }}'
+          driverVersion: '{{ .Values.driverVersion }}'
           telemetry: '{{ .Values.telemetry | toString }}'
           nvmlMock: '{{ .Values.nvmlMock | toString }}'
     # The GPU Operator Application is Healthy long before a driver is loaded and the device plugin
@@ -334,6 +358,7 @@ spec:
           expectedGPUs: '{{ .Values.expectedGPUs }}'
           gpus: '{{ .Outputs.gpuready.gpus }}'
           gpuModel: '{{ .Values.gpuModel }}'
+          nvlinkFabric: '{{ .Values.nvlinkFabric }}'
           stopOnFailure: '{{ .Values.stopOnFailure | toString }}'
           runTimeoutSeconds: '600'
           toolsImage: '{{ .Values.toolsImage }}'
@@ -402,6 +427,7 @@ spec:
           soakMinutes: '{{ .Values.soakMinutes }}'
           soakLoad: '{{ .Values.soakLoad }}'
           maxGPUTempC: '{{ .Values.maxGPUTempC }}'
+          maxNVLinkErrors: '{{ .Values.maxNVLinkErrors }}'
           toolsImage: '{{ .Values.toolsImage }}'
           dcgmImage: '{{ .Values.dcgmImage }}'
     - name: report

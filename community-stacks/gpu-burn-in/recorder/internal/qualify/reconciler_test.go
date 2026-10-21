@@ -333,3 +333,81 @@ func TestNames(t *testing.T) {
 		t.Fatalf("netboxDevice: %d %v", id, err)
 	}
 }
+
+// twoNodeReportJSON is a run on two servers in which only the second failed.
+const twoNodeReportJSON = `{
+  "schema": "gpu-burn-in.vcluster.com/v1", "result": "failed", "failedTests": ["inventory"],
+  "summary": "inventory failed: 7 of 8 GPUs", "profile": "b200-rack",
+  "host": {"name": "rack-c-u12", "dmi": {"product_serial": "S123"}},
+  "expectedGPUs": 8, "detectedGPUs": 8,
+  "gpus": [{"index": 0, "uuid": "GPU-1", "name": "NVIDIA B200", "serial": "1", "driver": "580.65.06"}],
+  "tests": [
+    {"test": "inventory", "status": "passed", "summary": "8 x NVIDIA B200", "node": "rack-c-u12"},
+    {"test": "inventory", "status": "failed", "summary": "7 of 8 GPUs", "node": "rack-c-u13"}
+  ],
+  "nodes": [
+    {"name": "rack-c-u12", "result": "passed", "failedTests": [], "summary": "qualified: inventory"},
+    {"name": "rack-c-u13", "result": "failed", "failedTests": ["inventory"], "summary": "inventory failed: 7 of 8 GPUs"}
+  ]
+}`
+
+// twoNodeObjects adds a second server to the fixture, named the NICo way (by id, with the host name
+// as display name), and a third Machine of the tenant cluster that the report has no node for.
+func twoNodeObjects() []client.Object {
+	objs := fixture{result: "failed"}.objects()
+	for _, o := range objs {
+		if s, ok := o.(*corev1.Secret); ok {
+			s.Data[reportJSONOutputKey] = []byte(twoNodeReportJSON)
+		}
+	}
+	add := func(name, claim string, spec map[string]any) {
+		sm := obj(storageMachine, "", name, map[string]any{"spec": spec})
+		sm.SetAnnotations(map[string]string{machineNodeClaimAnnotation: ns + "/" + claim})
+		objs = append(objs, sm,
+			obj(managementMachine, "", name, map[string]any{"spec": spec}),
+			obj(nodeClaimGVK, ns, claim, map[string]any{"spec": map[string]any{"vClusterRef": tenant}}))
+	}
+	add("nico-dc1.fm100h-7", tenant+"-x81kd", map[string]any{"providerRef": "nico-dc1", "displayName": "rack-c-u13"})
+	add(provider+".rack-c-u14", tenant+"-p20aa", map[string]any{"providerRef": provider})
+	return objs
+}
+
+func TestRecordsEachNodeOwnVerdict(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(twoNodeObjects()...).Build()
+	r := newReconciler(c, TargetMachine)
+	reconcile(t, r)
+
+	for name, want := range map[string]string{machine: "passed", "nico-dc1.fm100h-7": "failed", provider + ".rack-c-u14": ""} {
+		if got := get(t, c, managementMachine, "", name).GetLabels()[domain+"/result"]; got != want {
+			t.Errorf("%s: result label %q, want %q", name, got, want)
+		}
+	}
+	reports := listReports(t, c)
+	if len(reports) != 2 {
+		t.Fatalf("%d reports, want 2: one per node with a result", len(reports))
+	}
+	for _, qr := range reports {
+		spec := qr.Object["spec"].(map[string]any)
+		hw := spec["hardware"].(map[string]any)
+		tests := spec["tests"].([]any)
+		if spec["group"] != ns+"/"+tenant || qr.GetLabels()[labelGroup] != safeLabel(ns+"/"+tenant) || len(tests) != 1 {
+			t.Errorf("%s: group %v, %d tests", qr.GetName(), spec["group"], len(tests))
+		}
+		switch spec["machineRef"] {
+		case machine:
+			if spec["result"] != "passed" || len(spec["failedTests"].([]any)) != 0 || hw["node"] != host || hw["gpuModel"] != "NVIDIA B200" {
+				t.Errorf("passing node: %v", spec)
+			}
+		case "nico-dc1.fm100h-7":
+			// Another node's report carries only its node name, not the host's inventory.
+			if spec["result"] != "failed" || spec["summary"] != "inventory failed: 7 of 8 GPUs" || hw["node"] != "rack-c-u13" || hw["gpuModel"] != nil {
+				t.Errorf("failing node: %v", spec)
+			}
+			if tests[0].(map[string]any)["status"] != "failed" {
+				t.Errorf("failing node's test: %v", tests[0])
+			}
+		default:
+			t.Errorf("unexpected report for %v", spec["machineRef"])
+		}
+	}
+}

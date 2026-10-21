@@ -39,6 +39,10 @@ directory that Argo CD reads from Git.
 > [!IMPORTANT]
 > This Stack is not marked `vcluster.com/certified`, and vCluster Platform does not bundle it.
 
+For other GPU burn-in and validation tools and how they compare with this Stack, see
+[LANDSCAPE.md](LANDSCAPE.md). For which GPU generations the defaults support, and the overrides
+Volta (V100) needs, see [GPU_SUPPORT.md](GPU_SUPPORT.md).
+
 ## Contents
 
 - [Architecture](#architecture)
@@ -65,10 +69,10 @@ directory that Argo CD reads from Git.
 | --- | --- | --- | --- | --- |
 | `gpu-operator` | NVIDIA GPU Operator, with DCGM and dcgm-exporter when `telemetry` is on | NGC chart | `45m0s` | |
 | `gpuready` | Waits up to 40 minutes for allocatable `nvidia.com/gpu` | `alpine/k8s` | `50m0s` | No GPU appears |
-| `inventory` | `nvidia-smi -L`, `--query-gpu`, `topo -m`, `nvlink -s`, DMI | DCGM | `20m0s` | Count differs from `expectedGPUs`, wrong model, uncorrected ECC, inactive NVLink |
+| `inventory` | `nvidia-smi -L`, `--query-gpu`, `topo -m`, `nvlink -s`, `-q -x`, DMI | DCGM | `20m0s` | Count differs from `expectedGPUs`, wrong model, uncorrected ECC, inactive NVLink, an unhealthy NVLink fabric or GPUs in different cliques |
 | `dcgmdiag` | `dcgmi diag -r <level> -j`, then `-r <extra tests>` | DCGM | `4h30m0s` | Any DCGM result is Fail; a Skip too with `failOnSkip` |
 | `nccl` | `all_reduce`, `all_gather` and `reduce_scatter` with `-c 1` | NGC PyTorch | `1h30m0s` | Non-zero exit, wrong results, bus bandwidth below the floor |
-| `soak` | DCGM `targeted_stress` and `targeted_power` cycles, `dcgmi dmon` every 5s | DCGM | `25h0m0s` | A DCGM Fail, any GPU above `maxGPUTempC`, an XID, or no load test actually ran |
+| `soak` | DCGM `targeted_stress` and `targeted_power` cycles, `dcgmi dmon` every 5s, NVLink error counters before and after | DCGM | `25h0m0s` | A DCGM Fail, any GPU above `maxGPUTempC`, an XID, NVLink errors growing past `maxNVLinkErrors`, or no load test actually ran |
 | `report` | Collects the results, writes `gpu-burn-in-report`, uploads to S3 | `alpine/k8s` | `15m0s` | |
 | `verdict` | Exits 1 unless the report says `passed` | `alpine/k8s` | `10m0s` | |
 
@@ -180,21 +184,28 @@ Both write the same record:
   owns (`labelDomain` for the controller, `LABEL_DOMAIN` for the script). Never use a
   `vcluster.com` or `loft.sh` domain: newer Platform builds keep labels in those domains out of
   NodeType selection, and both tools refuse them.
-- **On the Machine (`machine`):** the preferred target where it works. The vCluster Platform
+- **On the Machine (`machine`):** the preferred target from vCluster Platform v5.0.0-alpha.5. The
   Machine is provider-neutral, covering Metal3 and NICo, and lives on the management API, so
-  nothing needs credentials for the cluster that runs Metal3. NodeType selection merges Machine
-  labels with the host's labels. This needs a Platform build that lets users label Machines.
-  Earlier builds, including 4.13.0-alpha.19, reject every Machine write, so use `bmh` there.
-- **On the BareMetalHost (`bmh`):** works on any build, and the Platform mirrors its labels to the
-  Machine.
+  nothing needs credentials for the cluster that runs Metal3. From v5.0.0-alpha.5, Metal3 and NICo
+  NodeTypes select on Machine labels, with a Metal3 host's own labels laid over them. Earlier builds,
+  such as the 4.13 alphas (4.13 was never released), accept the label on the Machine, but their
+  Metal3 NodeTypes select on BareMetalHost labels only, so the label gates nothing; use `bmh`
+  there.
+- **On the BareMetalHost (`bmh`):** works on any build, because Metal3 NodeTypes always read the
+  host's labels. From v5.0.0-alpha.5 the Platform also copies the label to the Machine; before
+  that it stays on the host only.
 - **Either way the record survives the teardown.** When the tenant cluster is deleted, the Metal3
   provider removes only its own project and NodeClaim labels. The qualification label and
   annotations stay, even after the host is wiped and returned to `available`.
-- **NetBox, optionally:**
-  - On a failure, the device status is set to `failed`, and the tag that brings the device into
-    vCluster Platform is removed.
+- **NetBox, optionally**, for servers from a Metal3 provider's NetBox import:
+  - On a failure, the device status is set to `failed`, and the import's tag is removed. The
+    import then orphans the server, and removes it once the tenant cluster lets it go, so a
+    failed server leaves the Platform instead of only carrying a label.
   - On a pass, a qualified tag is added.
-  - Either way, a journal entry gets the summary.
+  - Either way, a journal entry gets the failed tests and summary.
+
+  Setup, the token, and what happens to a failed server are in the recorder's
+  [NetBox](recorder/README.md#netbox) section. The script takes the same token in `NETBOX_TOKEN`.
 
 **2. Enforce it.** A label alone does not stop allocation. Require it in the BareMetalHost selector
 of every production NodeType, and point the qualification NodeType at hosts without it:
@@ -307,6 +318,7 @@ Set these on the tenant cluster template, which passes the Stack parameters thro
 | --- | --- | --- |
 | `expectedGPUs` | `8` | GPUs the server must have |
 | `gpuModel` | empty | Substring every GPU name must contain, for example `B300` |
+| `nvlinkFabric` | `auto` | NVLink fabric check. `auto` checks GPUs that report a fabric (GB200 and GB300 NVL trays) and skips HGX boards and PCIe GPUs. `required` also fails GPUs without one. `off` skips it |
 | `assetID` | empty | The server's inventory name, recorded in the report |
 | `profile` | `default` | Name for this set of thresholds, for example `b300-burnin-v1` |
 | `stopOnFailure` | `true` | Skip the remaining tests after a failure |
@@ -320,11 +332,13 @@ Set these on the tenant cluster template, which passes the Stack parameters thro
 | `soakMinutes` | `60` | Soak length, 0 to 1440. `0` disables the soak |
 | `soakLoad` | `dcgm` | `dcgm` loads the GPUs; `none` only records telemetry |
 | `maxGPUTempC` | `90` | The soak fails above this |
+| `maxNVLinkErrors` | `0` | The soak fails when a GPU's NVLink replay, recovery and CRC error counters grow by more than this. Corrected FEC errors and BER are not counted |
 | `reportS3URI`, `s3CredentialsSecret`, `s3Endpoint` | empty | Optional S3 copy of the report |
 | `recordResult`, `netboxUpdate`, `releaseServer` | `true`, `false`, `false` | What the [recorder controller](#the-recorder-controller) does with this run. No effect without it |
 | `nvmlMock` | `false` | `true` only on NVIDIA nvml-mock servers: validator and GPU Feature Discovery settings for simulated GPUs |
 | `telemetry` | `true` | DCGM and dcgm-exporter during the burn-in, for the Fleet Observability dashboards. See [DCGM and burn-in telemetry](#dcgm-and-burn-in-telemetry) |
 | `driverPreinstalled` | `false` | `true` when the node image has the NVIDIA driver |
+| `driverVersion` | empty | The driver the GPU Operator builds, for example `580.126.20`. Empty uses the GPU Operator release's default. Pin a 580 driver for Volta; see [GPU_SUPPORT.md](GPU_SUPPORT.md) |
 | `argoProject`, `chartRepoURL`, `chartRevision` | `default`, this repository, `main` | Where Argo CD reads the step chart |
 | `gpuOperatorVersion`, `toolsImage`, `dcgmImage`, `ncclImage` | see [stacktemplate.yaml](stacktemplate.yaml) | Versions. Renovate tracks them |
 
@@ -419,9 +433,15 @@ kubectl -n gpu-burn-in get configmap gpu-burn-in-report -o jsonpath='{.data.repo
   "expectedGPUs": 8,
   "detectedGPUs": 8,
   "gpus": [{"index": 0, "uuid": "GPU-...", "name": "NVIDIA B300 ...", "serial": "...", "uncorrectedECC": 0}],
-  "tests": [{"test": "inventory", "status": "passed", "summary": "8 x NVIDIA B300 ...", "details": {}}]
+  "tests": [{"test": "inventory", "status": "passed", "summary": "8 x NVIDIA B300 ...", "node": "...", "details": {}}],
+  "nodes": [{"name": "...", "result": "failed", "failedTests": ["nccl", "soak"], "summary": "..."}]
 }
 ```
+
+`nodes` gives each node its own verdict, from the tests that ran on it, and a test with no
+result counts against every node. With one server it has one entry, matching `result`. The
+recorder records each machine's own entry, so a run over several servers fails only the ones that
+failed.
 
 Each test's `details` holds its measurements. These include the DCGM results by test name, NCCL bus
 bandwidth per collective, and per-GPU peak temperature, peak power, last XID and throttle samples
@@ -468,6 +488,15 @@ community-stacks/gpu-burn-in/tests/nvml-mock-e2e.sh --project default \
 Both faults during the soak are verified: the thermal spike fails the soak with `above 90C: GPU 0
 95C` (nvml-mock caps the reported temperature at 95 C), and the injected Xid fails it with `GPU 0
 Xid 48`, because DCGM's last-XID field reflects the simulated error.
+
+NVLink faults, for the GB200 and GB300 profiles, which simulate an NVL72 tray's fabric. The fixture
+tests cover these checks, but they have not run against nvml-mock yet:
+
+| Fault | Expected |
+| --- | --- |
+| `nvml-mock-ctl fabric-health --gpu 1 route_unhealthy` before `inventory` | `failed: inventory`, `NVLink fabric: GPU 1 summary=Unhealthy, route_unhealthy=True` |
+| `nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth`, or a misconfiguration such as `no_partition` | `failed: inventory`, naming the condition |
+| `nvml-mock-ctl nvlink-error --gpu 0 100` during the soak | `failed: soak`, `NVLink errors during the soak: GPU 0 +<count>` |
 
 ## Test on a single real GPU
 
@@ -555,7 +584,8 @@ server's ConnectX or BlueField NICs. Testing it needs the RDMA devices in the te
 example through the NVIDIA Network Operator), `perftest` bandwidth and latency between servers,
 NCCL across racks over RDMA, and the switch side's port errors and link flaps. Its result belongs
 to a set of racks or a fabric, not a server. None of that is in this Stack. NVIDIA Cluster Readiness
-Engine covers part of this ground.
+Engine covers part of this ground; [NVCRE.md](NVCRE.md) is a plan for integrating it as an optional
+step.
 
 ## Troubleshooting
 
@@ -683,12 +713,20 @@ three more runs were recorded with topology from NetBox (`site`, `location` and 
   soak failed it with `GPU 0 Xid 48`. That server's two failures in a row show as
   `gpu_qualification_consecutive_failures` 2 on the Failures dashboard.
 
+**NetBox, 2026-10-21.** A failing nvml-mock run with `netboxUpdate: true` set NetBox device 2 to
+`failed`, removed its `vcluster-sync` tag and added a `danger` journal entry naming `inventory`.
+The import marked the Machine `Orphaned` and kept it while the tenant cluster held it. Once the
+tenant cluster was deleted, the import removed the BareMetalHost and Machine within about two
+minutes, and the QualificationReports stayed. Tagged and active again, it came back with no result
+label. See the
+recorder's [Tested](recorder/README.md#tested) section.
+
 Not exercised yet:
+
 - Any multi-GPU server, NVLink, DCGM levels 3 and 4, or an NCCL bandwidth floor.
 - A failing server on real hardware. The fixtures and nvml-mock cover the failure paths.
 - The `nvml-mock-e2e.sh` scenarios as a script. The same faults were run by hand.
-- The recorder in-cluster from its image, the `machine` target, and NetBox updates. Its unit tests
-  cover these against a fake API server and a fake NetBox.
+- The recorder's `machine` target. Its unit tests cover it against a fake API server.
 - The S3 upload.
 
 ## License

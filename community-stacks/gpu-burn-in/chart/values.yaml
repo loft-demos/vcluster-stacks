@@ -14,6 +14,9 @@ gpus: "1"
 runtimeClassName: nvidia
 # Case-insensitive substring every GPU name must contain, for example B300. Empty skips the check.
 gpuModel: ""
+# NVLink fabric check in inventory: auto checks GPUs that report a fabric (GB200 and GB300 NVL
+# trays) and skips the rest, required also fails GPUs with no fabric attachment, off skips it.
+nvlinkFabric: auto
 
 # Identity recorded in the report, for the automation that updates the inventory.
 assetID: ""
@@ -37,6 +40,8 @@ ncclMinBusBandwidthGBps: "0"
 soakMinutes: "60"
 soakLoad: dcgm
 maxGPUTempC: "90"
+# The soak fails when a GPU's NVLink replay, recovery and CRC error counters grow by more than this.
+maxNVLinkErrors: "0"
 
 # DCGM tests: the shared host engine, host:port, when telemetry is on. Empty starts one in the pod.
 dcgmHost: ""

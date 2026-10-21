@@ -1,6 +1,7 @@
 #!/bin/sh
 # DCGM image. Sustained load for SOAK_MINUTES while dcgmi dmon samples temperature, power,
-# utilization, XID and clock event reasons every 5 seconds.
+# utilization, XID and clock event reasons every 5 seconds. NVLink error counters are read before
+# and after, so errors the load caused show as growth.
 #
 # SOAK_LOAD=dcgm alternates DCGM targeted_stress and targeted_power in cycles of up to 20 minutes.
 # SOAK_LOAD=none applies no load and only records telemetry: what a simulated GPU (nvml-mock),
@@ -9,6 +10,8 @@ set -u
 cd "$WORK"
 . /scripts/hostengine.sh
 start_hostengine || exit 1
+
+nvidia-smi nvlink -e >nvlink-errors-start.txt 2>&1 || true
 
 # 150 GPU temp, 155 power, 203 GPU util, 230 last XID, 112 clock event (throttle) reasons.
 dcgm dmon -e 150,155,203,230,112 -d 5000 >dmon.txt 2>&1 &
@@ -39,5 +42,6 @@ done
 echo "$cycle" >soak-cycles
 kill "$dmon" 2>/dev/null
 wait "$dmon" 2>/dev/null
+nvidia-smi nvlink -e >nvlink-errors-end.txt 2>&1 || true
 echo "== dmon (last 40 samples)"
 tail -n 40 dmon.txt

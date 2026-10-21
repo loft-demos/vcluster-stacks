@@ -27,8 +27,8 @@ for case in "$here"/fixtures/*/; do
   (
     # The defaults the chart passes, then the case's overrides.
     EXPECTED_GPUS=8 GPU_MODEL=B300 FAIL_ON_SKIP=false DCGM_DIAG_LEVEL=3 DCGM_EXTRA_TESTS=""
-    NCCL_MIN_BUS_BW=0 SOAK_MINUTES=60 SOAK_LOAD=dcgm MAX_GPU_TEMP_C=90 RUN_TIMEOUT_SECONDS=3600
-    ENABLED=true WANT_SUMMARY="" WANT_METRIC=""
+    NCCL_MIN_BUS_BW=0 SOAK_MINUTES=60 SOAK_LOAD=dcgm MAX_GPU_TEMP_C=90 MAX_NVLINK_ERRORS=0 RUN_TIMEOUT_SECONDS=3600
+    ENABLED=true NVLINK_FABRIC=auto WANT_SUMMARY="" WANT_METRIC=""
     . "$WORK/case.env"
     export WORK
     . "$files/evaluate.sh"
@@ -79,11 +79,13 @@ report_case() {
   out=$(build_report "$tmp/results.json" "$tmp/host.json")
   got=$(echo "$out" | jq -r .result)
   failed=$(echo "$out" | jq -r '.failedTests | join(",")')
-  if [ "$got" = "$want" ] && [ "$failed" = "$want_failed" ] &&
+  # One server: one nodes[] entry, the host, with the run's own verdict.
+  nodes=$(echo "$out" | jq -r '[.nodes[] | "\(.name)=\(.result)=\(.failedTests | join(","))"] | join(" ")')
+  if [ "$got" = "$want" ] && [ "$failed" = "$want_failed" ] && [ "$nodes" = "b300-001=$want=$want_failed" ] &&
     [ "$(echo "$out" | jq -r '.detectedGPUs, .assetID, .host.dmi.product_serial' | tr '\n' ' ')" = "8 bmh-b300-001 S123 " ]; then
     echo "ok   report $name: $got${failed:+ ($failed)}"
   else
-    echo "FAIL report $name: result $got failed '$failed', want $want '$want_failed'"
+    echo "FAIL report $name: result $got failed '$failed' nodes '$nodes', want $want '$want_failed'"
     failures=$((failures + 1))
   fi
 }
@@ -92,6 +94,31 @@ report_case nccl-disabled passed "" gpuready=passed inventory=passed dcgmdiag=pa
 report_case inventory-failed failed inventory,dcgmdiag,nccl,soak gpuready=passed inventory=failed dcgmdiag=skipped nccl=skipped soak=skipped
 report_case soak-error failed soak gpuready=passed inventory=passed dcgmdiag=passed nccl=passed soak=error
 report_case result-missing failed soak gpuready=passed inventory=passed dcgmdiag=passed nccl=passed
+
+# Two nodes: each gets the verdict of the tests that ran on it; a missing result counts against both.
+# node_case NAME WANT_NODES TEST=STATUS@NODE...
+node_case() {
+  name=$1 want=$2
+  shift 2
+  count=$((count + 1))
+  printf '%s\n' "$@" | jq -R -s '
+    [split("\n")[] | select(length > 0) | capture("(?<test>[^=]+)=(?<status>[^@]+)@?(?<node>.*)") |
+      {test, status, node, summary: "\(.test) \(.status)", "details.json": "{}"}]' >"$tmp/results.json"
+  got=$(build_report "$tmp/results.json" "$tmp/host.json" |
+    jq -r '[.nodes[] | "\(.name)=\(.result)=\(.failedTests | join(","))"] | join(" ")')
+  if [ "$got" = "$want" ]; then
+    echo "ok   nodes $name: $got"
+  else
+    echo "FAIL nodes $name: $got, want $want"
+    failures=$((failures + 1))
+  fi
+}
+echo '{"name":"","labels":{},"providerID":""}' >"$tmp/host.json"
+TESTS=inventory,nccl
+node_case one-bad-node "node-a=passed= node-b=failed=inventory" \
+  inventory=passed@node-a inventory=failed@node-b nccl=passed@node-a nccl=passed@node-b
+node_case missing-counts-for-all "node-a=failed=nccl node-b=failed=nccl" \
+  inventory=passed@node-a inventory=passed@node-b
 
 echo "$((count - failures))/$count passed"
 [ "$failures" -eq 0 ]

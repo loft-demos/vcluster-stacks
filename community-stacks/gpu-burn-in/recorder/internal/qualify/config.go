@@ -12,10 +12,12 @@ type Target string
 
 const (
 	// TargetMachine labels the vCluster Platform Machine through the management API. It is
-	// provider-neutral, but needs a Platform build that lets users label Machines.
+	// provider-neutral. NodeTypes select on Machine labels from Platform v5.0.0-alpha.5; before that,
+	// Metal3 NodeTypes read only BareMetalHost labels.
 	TargetMachine Target = "machine"
-	// TargetBareMetalHost labels the Metal3 BareMetalHost on the cluster that runs Metal3. It works
-	// on any Platform build; the Platform mirrors the labels to the Machine.
+	// TargetBareMetalHost labels the Metal3 BareMetalHost on the cluster that runs Metal3. It gates
+	// Metal3 NodeTypes on any Platform build; from v5.0.0-alpha.5 the Platform copies the labels to
+	// the Machine.
 	TargetBareMetalHost Target = "bmh"
 )
 

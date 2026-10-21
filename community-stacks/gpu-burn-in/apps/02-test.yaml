@@ -62,6 +62,11 @@ spec:
     - variable: gpuModel
       label: GPU Model
       type: string
+    - variable: nvlinkFabric
+      label: NVLink Fabric
+      type: string
+      options: [auto, required, "off"]
+      defaultValue: auto
     - variable: assetID
       label: Asset ID
       type: string
@@ -106,6 +111,10 @@ spec:
       label: Maximum GPU Temperature (C)
       type: number
       defaultValue: '90'
+    - variable: maxNVLinkErrors
+      label: Maximum NVLink Errors
+      type: number
+      defaultValue: '0'
     - variable: dcgmHost
       label: DCGM Host Engine
       description: host:port of the shared DCGM host engine when telemetry is on. Empty starts one in the test pod.
@@ -172,6 +181,7 @@ spec:
             gpus: {{ .Values.gpus | toString | quote }}
             runtimeClassName: {{ .Values.runtimeClassName | quote }}
             gpuModel: {{ .Values.gpuModel | quote }}
+            nvlinkFabric: {{ .Values.nvlinkFabric | default "auto" | quote }}
             assetID: {{ .Values.assetID | quote }}
             profile: {{ .Values.profile | quote }}
             stopOnFailure: {{ .Values.stopOnFailure | toString | quote }}
@@ -183,6 +193,7 @@ spec:
             soakMinutes: {{ .Values.soakMinutes | toString | quote }}
             soakLoad: {{ .Values.soakLoad | quote }}
             maxGPUTempC: {{ .Values.maxGPUTempC | toString | quote }}
+            maxNVLinkErrors: {{ .Values.maxNVLinkErrors | default "0" | toString | quote }}
             dcgmHost: {{ .Values.dcgmHost | quote }}
             readyWaitSeconds: {{ .Values.readyWaitSeconds | toString | quote }}
             runTimeoutSeconds: {{ .Values.runTimeoutSeconds | toString | quote }}

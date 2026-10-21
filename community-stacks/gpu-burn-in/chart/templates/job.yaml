@@ -24,6 +24,8 @@
   value: {{ .Values.gpus | default "1" | toString | quote }}
 - name: GPU_MODEL
   value: {{ .Values.gpuModel | default "" | quote }}
+- name: NVLINK_FABRIC
+  value: {{ .Values.nvlinkFabric | default "auto" | quote }}
 - name: ASSET_ID
   value: {{ .Values.assetID | default "" | quote }}
 - name: PROFILE
@@ -48,6 +50,8 @@
   value: {{ .Values.soakLoad | default "dcgm" | quote }}
 - name: MAX_GPU_TEMP_C
   value: {{ .Values.maxGPUTempC | default "90" | toString | quote }}
+- name: MAX_NVLINK_ERRORS
+  value: {{ .Values.maxNVLinkErrors | default "0" | toString | quote }}
 - name: READY_WAIT_SECONDS
   value: {{ .Values.readyWaitSeconds | default "2400" | toString | quote }}
 - name: RUN_TIMEOUT_SECONDS

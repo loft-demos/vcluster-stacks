@@ -90,6 +90,13 @@ spec:
       description: Case-insensitive substring every GPU name must contain, for example B300.
       type: string
       section: Server
+    - variable: nvlinkFabric
+      label: NVLink Fabric
+      description: auto checks the NVLink fabric of GPUs that report one, required also fails GPUs without one, off skips it.
+      type: string
+      options: [auto, required, "off"]
+      defaultValue: auto
+      section: Server
     - variable: assetID
       label: Asset ID
       description: The server's inventory name, for example its BareMetalHost or NetBox device.
@@ -105,6 +112,11 @@ spec:
       label: NVIDIA Driver Preinstalled
       type: boolean
       defaultValue: 'false'
+      section: Server
+    - variable: driverVersion
+      label: NVIDIA Driver Version
+      description: The driver the GPU Operator builds, for example 580.126.20. Empty uses its default. Pin a 580 driver for V100.
+      type: string
       section: Server
     - variable: nvmlMock
       label: Simulated GPUs (nvml-mock)
@@ -179,6 +191,11 @@ spec:
       label: Maximum GPU Temperature (C)
       type: number
       defaultValue: '90'
+      section: Tests
+    - variable: maxNVLinkErrors
+      label: Maximum NVLink Errors
+      type: number
+      defaultValue: '0'
       section: Tests
     - variable: reportS3URI
       label: Report S3 URI
@@ -296,7 +313,7 @@ spec:
               # carries no template defaults, and an unset value renders as <nil>, which the
               # Stack rejects. An omitted parameter takes the StackTemplate default instead.
               parameters:
-              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "assetID" "profile" "driverPreinstalled" "telemetry" "nvmlMock" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "recordResult" "netboxUpdate" "releaseServer" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
+              {{- range $k := list "argoProject" "chartRepoURL" "chartRevision" "expectedGPUs" "gpuModel" "nvlinkFabric" "assetID" "profile" "driverPreinstalled" "driverVersion" "telemetry" "nvmlMock" "stopOnFailure" "runDCGMDiag" "dcgmDiagLevel" "dcgmExtraTests" "failOnSkip" "runNCCL" "ncclMaxBytes" "ncclMinBusBandwidthGBps" "soakMinutes" "soakLoad" "maxGPUTempC" "maxNVLinkErrors" "reportS3URI" "s3CredentialsSecret" "s3Endpoint" "recordResult" "netboxUpdate" "releaseServer" "gpuOperatorVersion" "toolsImage" "dcgmImage" "ncclImage" }}
               {{- if not (kindIs "invalid" (index $.Values $k)) }}
                 {{ $k }}: {{ index $.Values $k | toString | quote }}
               {{- end }}

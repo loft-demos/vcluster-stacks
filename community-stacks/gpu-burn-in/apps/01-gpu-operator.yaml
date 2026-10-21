@@ -36,6 +36,10 @@ spec:
       label: NVIDIA Driver Preinstalled
       type: boolean
       defaultValue: 'false'
+    - variable: driverVersion
+      label: NVIDIA Driver Version
+      description: The driver to build, for example 580.126.20. Empty uses this GPU Operator release's default.
+      type: string
     - variable: nvmlMock
       label: Simulated GPUs (nvml-mock)
       description: Validator and GPU Feature Discovery settings for NVIDIA nvml-mock nodes. Wrong on real GPUs.
@@ -62,6 +66,9 @@ spec:
               defaultRuntime: containerd
             driver:
               enabled: {{ if or (eq (.Values.driverPreinstalled | toString) "true") (eq (.Values.nvmlMock | toString) "true") }}false{{ else }}true{{ end }}
+              {{- with .Values.driverVersion }}
+              version: {{ . | quote }}
+              {{- end }}
             # nvml-mock is the driver and the container toolkit. With the operator's toolkit on, the
             # device plugin writes CDI specs that call its nvidia-cdi-hook, which is not installed on
             # a node that skips the toolkit, and every GPU container fails to start.

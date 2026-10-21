@@ -21,10 +21,10 @@ labelDomain: gpu-qualification.example.com
 
 # Where to record:
 #   machine  the vCluster Platform Machine, through the management API. Provider-neutral (Metal3 and
-#            NICo). Needs a Platform build that lets users label Machines; earlier builds, including
-#            4.13.0-alpha.19, reject every Machine write.
+#            NICo). NodeTypes select on Machine labels from Platform v5.0.0-alpha.5; before that the
+#            label is accepted, but Metal3 NodeTypes select on BareMetalHost labels only.
 #   bmh      the Metal3 BareMetalHost, on the cluster its NodeProvider's clusterRef names. Works on
-#            any build; the Platform mirrors the label to the Machine.
+#            any build; from v5.0.0-alpha.5 the Platform copies the label to the Machine.
 target: machine
 
 # bmh only. The Platform name of this cluster: a Metal3 provider whose clusterRef names it is

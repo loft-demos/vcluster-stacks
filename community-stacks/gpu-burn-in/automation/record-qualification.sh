@@ -3,15 +3,19 @@
 # the qualification flow. A sample, not a controller: run it once per qualification, after the
 # Stack has finished.
 #
-#   record-qualification.sh --tenant-kubeconfig tenant.kubeconfig \
+#   record-qualification.sh --tenant-kubeconfig tenant.kubeconfig [--node rack-a-u12] \
 #     [--machine metal3-dc1.rack-a-u12 [--platform-context vcluster-platform_management]] \
 #     [--bmh rack-a-u12 --bmh-namespace metal3-system --metal3-context spark-cluster] \
-#     [--netbox-device rack-a-u12 --netbox-admit-tag vcluster-platform --netbox-qualified-tag gpu-qualified] \
+#     [--netbox-device rack-a-u12 --netbox-admit-tag vcluster-sync --netbox-qualified-tag gpu-qualified] \
 #     [--create-report [--report-machine metal3-dc1.rack-a-u12 | --provider metal3-dc1] \
 #       [--report-context vcluster-platform_loft-cluster]] \
 #     [--apply]
 #
 # Without --apply it prints what it would change and changes nothing.
+#
+# A run that tested several nodes reports a verdict per node. --node picks the server's, by its
+# node name (the host name); it defaults to --bmh, or to the only node. Run the script once per
+# server.
 #
 # Reads ConfigMap gpu-burn-in/gpu-burn-in-report from the tenant cluster (get a kubeconfig with
 # `vcluster platform connect vcluster <name> --project <project> --print`), or from --report-file,
@@ -24,10 +28,11 @@
 #
 # Where it is written:
 #   --machine   the vCluster Platform Machine, on the management API. Provider-neutral (Metal3 and
-#               NICo), and needs no credentials for the cluster that runs Metal3. Needs a Platform
-#               build that lets users label Machines; older builds reject every Machine write.
-#   --bmh       the Metal3 BareMetalHost, on the cluster that runs Metal3. Works on any build. The
-#               Platform mirrors these labels to the Machine.
+#               NICo), and needs no credentials for the cluster that runs Metal3. NodeTypes select
+#               on Machine labels from Platform v5.0.0-alpha.5; before that, Metal3 NodeTypes read
+#               only BareMetalHost labels, so use --bmh there.
+#   --bmh       the Metal3 BareMetalHost, on the cluster that runs Metal3. Works on any build. From
+#               v5.0.0-alpha.5 the Platform copies these labels to the Machine.
 # Both survive the release of the server: the Metal3 provider's teardown removes only its own
 # project and NodeClaim labels. A label alone does not stop allocation: require it in the
 # selector of every production NodeType, for example
@@ -47,15 +52,16 @@
 # it can be. The script does not prune old reports.
 #
 # NetBox (optional, NETBOX_URL and NETBOX_TOKEN in the environment): on a failure, sets the device
-# status to failed and removes --netbox-admit-tag, the tag that brings the device into vCluster
-# Platform. On a pass, adds --netbox-qualified-tag if given. Either way it adds a journal entry
-# with the summary. Check what your NetBox import does when a device loses its tag before you use
-# --netbox-admit-tag.
+# status to failed and removes --netbox-admit-tag, the tag the Metal3 provider's NetBox import
+# selects devices by (spec.metal3.netBox.tag). The import then orphans the server and removes it
+# once it is released. On a pass, adds --netbox-qualified-tag, which must already exist in NetBox.
+# Either way it adds a journal entry with the summary. NETBOX_TOKEN is the token alone, without
+# "Token" or "Bearer". Token permissions and the whole flow: recorder/README.md, section NetBox.
 set -euo pipefail
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//;/^set -euo/d'; exit "${1:-0}"; }
 
-tenant_kubeconfig="" report_file="" save_report=""
+tenant_kubeconfig="" report_file="" save_report="" node=""
 machine="" platform_context=""
 bmh="" bmh_namespace="metal3-system" metal3_context=""
 nb_device="" nb_admit_tag="" nb_qualified_tag="" apply=false
@@ -65,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --tenant-kubeconfig) tenant_kubeconfig=$2; shift 2 ;;
     --report-file) report_file=$2; shift 2 ;;
     --save-report) save_report=$2; shift 2 ;;
+    --node) node=$2; shift 2 ;;
     --machine) machine=$2; shift 2 ;;
     --platform-context) platform_context=$2; shift 2 ;;
     --bmh) bmh=$2; shift 2 ;;
@@ -107,6 +114,31 @@ else
 fi
 [[ -s "$tmp/report.json" ]] || { echo "no report found; has the report task run?" >&2; exit 1; }
 [[ -z "$save_report" ]] || cp "$tmp/report.json" "$save_report"
+
+# A report with nodes[] (one per node tested) is narrowed to this server's node: its verdict, its
+# tests, and the host inventory only when the report's host is that node.
+if [[ $(jq '.nodes // [] | length' "$tmp/report.json") -gt 0 ]]; then
+  [[ -n "$node" ]] || node=$bmh
+  if [[ -z "$node" ]]; then
+    [[ $(jq '.nodes | length' "$tmp/report.json") -eq 1 ]] || {
+      echo "the run tested several nodes; pick one with --node: $(jq -r '[.nodes[].name] | join(", ")' "$tmp/report.json")" >&2
+      exit 1
+    }
+    node=$(jq -r '.nodes[0].name' "$tmp/report.json")
+  fi
+  jq --arg n "$node" '
+    ([.nodes[] | select(.name == $n)][0]) as $e |
+    if $e == null then empty else
+      .result = $e.result | .failedTests = $e.failedTests | .summary = $e.summary |
+      .tests = [.tests[] | select((.node // "") == "" or .node == $n)] |
+      if .host.name != $n then .host = {name: $n} | .gpus = [] | .detectedGPUs = 0 else . end
+    end' "$tmp/report.json" >"$tmp/node.json"
+  [[ -s "$tmp/node.json" ]] || {
+    echo "the report has no result for node $node: $(jq -r '[.nodes[].name] | join(", ")' "$tmp/report.json")" >&2
+    exit 1
+  }
+  mv "$tmp/node.json" "$tmp/report.json"
+fi
 
 result=$(jq -r .result "$tmp/report.json")
 profile=$(jq -r .profile "$tmp/report.json")

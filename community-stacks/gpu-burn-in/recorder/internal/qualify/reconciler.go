@@ -127,19 +127,32 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 
+	full, err := parseStackReport(secret.Data[reportJSONOutputKey])
+	if err != nil {
+		r.event(si, corev1.EventTypeWarning, "RecordFailed", err.Error())
+		return ctrl.Result{}, err
+	}
+	group := ""
+	if len(full.Nodes) > 1 {
+		group = si.GetNamespace() + "/" + tenantCluster(si)
+	}
+
 	runID := fmt.Sprintf("%s/%s/%s", si.GetNamespace(), si.GetName(), si.GetUID())
 	for i := range machines {
-		// The report first: it is the history, and creating it again is a no-op.
-		qr, err := buildReport(si, &machines[i], report, secret.Data[reportJSONOutputKey], r.Config.Topology)
-		if err != nil {
-			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
-			return ctrl.Result{}, err
+		verdict, node, ok := forMachine(report, full, &machines[i])
+		if !ok {
+			r.event(si, corev1.EventTypeWarning, "NoNodeResult",
+				fmt.Sprintf("machine %s not recorded: the report has no result for its node", machines[i].GetName()))
+			logger.Info("no node result for this Machine; is its node name its host name?", "machine", machines[i].GetName())
+			continue
 		}
+		// The report first: it is the history, and creating it again is a no-op.
+		qr := buildReport(si, &machines[i], verdict, full, node, group, r.Config.Topology)
 		if err := r.createReport(ctx, qr); err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
 			return ctrl.Result{}, err
 		}
-		if err := r.record(ctx, si, &machines[i], report, run, runID); err != nil {
+		if err := r.record(ctx, si, &machines[i], verdict, run, runID); err != nil {
 			r.event(si, corev1.EventTypeWarning, "RecordFailed", fmt.Sprintf("machine %s: %v", machines[i].GetName(), err))
 			return ctrl.Result{}, err
 		}

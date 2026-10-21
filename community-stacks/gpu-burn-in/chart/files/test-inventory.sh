@@ -27,3 +27,5 @@ echo "== DMI"
 cat dmi.txt
 
 nvidia-smi -q >nvidia-smi-q.txt 2>&1 || true
+# The XML form carries the NVLink fabric block per GPU: registration, clique and health.
+nvidia-smi -q -x >nvidia-smi-q.xml 2>/dev/null || true

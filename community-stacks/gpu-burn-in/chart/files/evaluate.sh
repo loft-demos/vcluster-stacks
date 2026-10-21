@@ -27,7 +27,8 @@ METRICS='
   def sum(f): [f] | add // 0;
   if $test == "inventory" then
     {gpus: .gpuCount, allocatable_gpus: .allocatable,
-     uncorrected_ecc_errors: sum(.gpus[]?.uncorrectedECC // 0), inactive_nvlinks: .inactiveNVLinks}
+     uncorrected_ecc_errors: sum(.gpus[]?.uncorrectedECC // 0), inactive_nvlinks: .inactiveNVLinks,
+     fabric_unhealthy_gpus: (if .fabric then sum(.fabric[] | select(.problems | length > 0) | 1) else null end)}
   elif $test == "dcgmdiag" then
     {failed_tests: sum(.results[]?.failed // [] | length), skipped_tests: sum(.results[]?.skipped // [] | length),
      warned_tests: sum(.results[]?.warned // [] | length), level: (.level // "" | tonumber? // null)}
@@ -38,7 +39,9 @@ METRICS='
     {peak_temp_c: ([.telemetry[]?.maxTempC] | max), peak_power_w: ([.telemetry[]?.maxPowerW] | max),
      gpus_with_xid: sum(.telemetry[]? | select(.lastXid > 0) | 1),
      throttle_samples: sum(.telemetry[]?.thermalOrPowerThrottleSamples), samples: sum(.telemetry[]?.samples),
-     cycles: .cycles, minutes: .minutes}
+     cycles: .cycles, minutes: .minutes,
+     nvlink_errors: (if .nvlinkErrors then sum(.nvlinkErrors[].grew) else null end),
+     gpus_with_nvlink_errors: (if .nvlinkErrors then sum(.nvlinkErrors[] | select(.grew > 0) | 1) else null end)}
   elif $test == "gpuready" then
     {allocatable_gpus: .allocatable}
   else {} end'
@@ -94,6 +97,45 @@ judge_dcgm() {
   echo "$verdict"
 }
 
+# fabric_gpus FILE: the <fabric> block of every GPU in `nvidia-smi -q -x` output, as a JSON array
+# in GPU order: {index, state, status, cliqueId, clusterUuid, summary, bandwidth,
+# route_recovery_in_progress, route_unhealthy, access_timeout_recovery, incorrect_configuration}.
+# An element the driver does not print is absent.
+fabric_gpus() {
+  awk '
+    /<gpu id=/ { gpu++; next }
+    /<fabric>/ { in_fabric = 1; next }
+    /<\/fabric>/ { in_fabric = 0; next }
+    in_fabric && /<[A-Za-z_]+>[^<]*<\// {
+      line = $0; sub(/^[ \t]*</, "", line)
+      tag = line; sub(/>.*/, "", tag)
+      value = line; sub(/^[^>]*>/, "", value); sub(/<.*/, "", value)
+      printf "%d\t%s\t%s\n", gpu - 1, tag, value
+    }' "$1" | jq -R -s '
+    [split("\n")[] | select(length > 0) | split("\t")] | group_by(.[0] | tonumber) |
+    map((.[0][0] | tonumber) as $i | reduce .[] as $r ({index: $i}; .[$r[1]] = $r[2]))'
+}
+
+# judge_fabric FABRIC_JSON: per GPU, adds problems[] and inFabric to the fabric array. A GPU is in
+# a fabric when it reports a cluster UUID other than N/A or all zeros: GB200 and GB300 NVL trays
+# do, an HGX board or a PCIe GPU does not. NVLINK_FABRIC=required also fails a GPU that is not.
+judge_fabric() {
+  echo "$1" | jq --arg mode "$NVLINK_FABRIC" '
+    def v($k): (.[$k] // "N/A");
+    def bad($k; $healthy): (v($k) | ascii_downcase) as $x |
+      if $x == "n/a" or ($healthy | index($x)) then [] else ["\($k)=\(v($k))"] end;
+    map(. + {inFabric: (v("clusterUuid") | test("^[0-9a-fA-F-]{36}$") and (test("^[0-]+$") | not))}) |
+    map(.problems =
+      if .inFabric then
+        (if v("state") == "Completed" and v("status") == "Success" then []
+         else ["not registered: state \(v("state")), status \(v("status"))"] end)
+        + bad("summary"; ["healthy"]) + bad("bandwidth"; ["full"])
+        + bad("route_recovery_in_progress"; ["false"]) + bad("route_unhealthy"; ["false"])
+        + bad("access_timeout_recovery"; ["false"]) + bad("incorrect_configuration"; ["none"])
+      elif $mode == "required" then ["no NVLink fabric attachment"]
+      else [] end)'
+}
+
 evaluate_inventory() {
   [ -s "$WORK/gpus.csv" ] || { result failed "nvidia-smi reported no GPUs"; return; }
   gpus=$(jq -R -s '
@@ -122,6 +164,22 @@ evaluate_inventory() {
   allocatable=$(cat "$WORK/allocatable" 2>/dev/null || true)
   if [ -n "$allocatable" ] && [ "$allocatable" -lt "$count" ]; then
     problems="${problems}${problems:+; }device plugin advertises $allocatable of $count GPUs: one is unhealthy"
+  fi
+
+  # NVLink fabric: each GPU's registration and health, and one clique for the whole server.
+  if [ "${NVLINK_FABRIC:-auto}" != "off" ]; then
+    if [ -s "$WORK/nvidia-smi-q.xml" ]; then
+      fabric=$(judge_fabric "$(fabric_gpus "$WORK/nvidia-smi-q.xml")")
+      details=$(echo "$details" | jq --argjson f "$fabric" '. + {fabric: $f,
+        nvlinkCliques: ([$f[] | select(.inFabric) | "\(.clusterUuid).\(.cliqueId)"] | unique)}')
+      bad=$(echo "$fabric" | jq -r '[.[] | select(.problems | length > 0) | "GPU \(.index) \(.problems | join(", "))"] | join("; ")')
+      [ -z "$bad" ] || problems="${problems}${problems:+; }NVLink fabric: $bad"
+      cliques=$(echo "$details" | jq -r '.nvlinkCliques | join(", ")')
+      [ "$(echo "$details" | jq '.nvlinkCliques | length')" -le 1 ] ||
+        problems="${problems}${problems:+; }GPUs in different NVLink cliques: $cliques"
+    elif [ "$NVLINK_FABRIC" = "required" ]; then
+      problems="${problems}${problems:+; }no NVLink fabric data: nvidia-smi -q -x produced nothing"
+    fi
   fi
 
   model=$(echo "$gpus" | jq -r '[.[].name] | unique | join(",")')
@@ -199,6 +257,20 @@ telemetry() {
     }' "$1"
 }
 
+# nvlink_error_counts FILE: per GPU, the sum of the NVLink Replay, Recovery and CRC error counters
+# `nvidia-smi nvlink -e` prints, as {"<gpu>": n}. Other counters newer drivers print, such as
+# corrected FEC errors and BER, grow on healthy links and are not counted. Empty when the driver
+# prints none of the three.
+nvlink_error_counts() {
+  awk '
+    /^GPU [0-9]+:/ { gpu = $2; sub(/:$/, "", gpu); next }
+    /(Replay|Recovery|CRC) Errors: *[0-9]+ *$/ {
+      n = $NF; sum[gpu] += n; seen[gpu] = 1
+    }
+    END { for (g in seen) printf "%s\t%d\n", g, sum[g] }' "$1" 2>/dev/null |
+    jq -R -s '[split("\n")[] | select(length > 0) | split("\t") | {key: .[0], value: (.[1] | tonumber)}] | from_entries'
+}
+
 evaluate_soak() {
   tel=$(telemetry "$WORK/dmon.txt" 2>/dev/null || echo '[]')
   [ -n "$tel" ] || tel='[]'
@@ -210,6 +282,16 @@ evaluate_soak() {
   details=$(jq -n --argjson tel "$tel" --argjson dcgm "$(cat "$WORK/dcgm-summary.json")" \
     --arg load "$SOAK_LOAD" --arg minutes "$SOAK_MINUTES" --argjson cycles "$cycles" \
     '{load: $load, minutes: ($minutes | tonumber), cycles: $cycles, telemetry: ($tel | sort_by(.gpu)), results: $dcgm}')
+  # NVLink errors during the soak: growth of each GPU's counters between the two readings.
+  if [ -s "$WORK/nvlink-errors-start.txt" ] && [ -s "$WORK/nvlink-errors-end.txt" ]; then
+    nvl=$(jq -n --argjson a "$(nvlink_error_counts "$WORK/nvlink-errors-start.txt")" \
+      --argjson b "$(nvlink_error_counts "$WORK/nvlink-errors-end.txt")" '
+      [$b | to_entries[] | {gpu: (.key | tonumber), start: ($a[.key] // 0), end: .value} | .grew = (.end - .start)]
+      | sort_by(.gpu)')
+    if [ "$(echo "$nvl" | jq length)" -gt 0 ]; then
+      details=$(echo "$details" | jq --argjson n "$nvl" '. + {nvlinkErrors: $n}')
+    fi
+  fi
 
   problems="$verdict"
   samples=$(echo "$tel" | jq '[.[].samples] | add // 0')
@@ -218,6 +300,9 @@ evaluate_soak() {
   [ -z "$hot" ] || problems="${problems}${problems:+; }above ${MAX_GPU_TEMP_C}C: $hot"
   xids=$(echo "$tel" | jq -r '[.[] | select(.lastXid > 0) | "GPU \(.gpu) Xid \(.lastXid)"] | join(",")')
   [ -z "$xids" ] || problems="${problems}${problems:+; }$xids"
+  nvlink=$(echo "$details" | jq -r --argjson max "${MAX_NVLINK_ERRORS:-0}" \
+    '[.nvlinkErrors[]? | select(.grew > $max) | "GPU \(.gpu) +\(.grew)"] | join(",")')
+  [ -z "$nvlink" ] || problems="${problems}${problems:+; }NVLink errors during the soak: $nvlink"
   if [ "$SOAK_LOAD" = "dcgm" ]; then
     # A GPU DCGM does not support skips targeted_stress and targeted_power. Without a passed load
     # test the soak never loaded the GPU, which must not count as a pass.

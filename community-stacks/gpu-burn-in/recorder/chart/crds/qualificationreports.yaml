@@ -103,6 +103,10 @@ spec:
                 profile:
                   description: The thresholds the run was judged against, for example b300-burnin-v1.
                   type: string
+                group:
+                  description: The node group the run tested together, for example a rack, when it
+                    tested more than one node. Reports of one run share it.
+                  type: string
                 result:
                   type: string
                   enum: [passed, failed, error]
