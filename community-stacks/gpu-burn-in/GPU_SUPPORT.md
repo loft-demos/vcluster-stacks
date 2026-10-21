@@ -46,9 +46,9 @@ three things from the Stack:
 
 | | What to set | Why |
 | --- | --- | --- |
-| **Driver** | `driverVersion: "580.126.20"`, or another 580 driver. With the driver already on the server, set `driverPreinstalled: "true"` instead, and keep it on 580 or older | Newer branches don't support Volta. The default `gpuOperatorVersion: v26.3.3` builds `580.126.20` too, but v26.7 and later default to 595, so pin it |
+| **Driver** | `driverVersion` with a 580 driver the server's kernel can build, such as `"580.178.04"`. With the driver already on the server, set `driverPreinstalled: "true"` instead, and keep it on 580 or older | Newer branches don't support Volta, and GPU Operator v26.7 and later default to 595, so pin it. The default `580.126.20` does not build on kernel 7.0, such as Google Cloud's Ubuntu 24.04 kernel `7.0.0-1014-gcp`; `580.178.04` does |
 | **NCCL** | `ncclImage: nvcr.io/nvidia/pytorch:24.12-py3` | The last NGC PyTorch release that supports Volta (CUDA 12.6.3). Later releases dropped Volta, and nccl-tests built with CUDA 13 leave out Volta |
-| **DCGM** | Check `dcgmi diag -r 1` on one V100 before a full run | NVIDIA says Volta on driver 580 needs DCGM's CUDA 12 build. The default image contains both builds, and how it picks between them isn't documented. If diagnostics fail with an unsupported-device or kernel error, use an image with only the CUDA 12 build |
+| **DCGM** | Nothing: the default image passed level 2 on a V100 | NVIDIA says Volta on driver 580 needs DCGM's CUDA 12 build. The default image contains both builds and picked the right one. If diagnostics fail with an unsupported-device or kernel error on another setup, use an image with only the CUDA 12 build |
 
 What works without changes:
 
@@ -58,11 +58,15 @@ What works without changes:
 - **The soak's NVLink error check** reads the replay, recovery and CRC counters, which
   Volta's NVLink 2 reports.
 
-Not verified on a real V100: any of the above, and whether DCGM's per-SKU settings enable
-`targeted_stress` and `targeted_power` on V100. Run one short qualification on a single V100
-before relying on it. [example/gcp-v100/](example/gcp-v100/) has one with these overrides, on a
-Google Cloud N1 VM with one V100: the tenant cluster, a node provider with a V100 node type, and
-the change the Google Cloud node template needs to attach the GPU.
+Verified on a Google Cloud V100 (see [Tested](#tested)): the overrides above, inventory, DCGM level
+2, NCCL with one rank and the soak. Not verified: DCGM levels 3 and 4, whether DCGM's per-SKU
+settings enable `targeted_stress` and `targeted_power` on V100, and the NVLink checks on a server
+with several V100s. [example/gcp-v100/](example/gcp-v100/) has the run: the tenant cluster, a node
+provider with a V100 node type, and the change the Google Cloud node template needs to attach the
+GPU.
+
+The NGC PyTorch 24.12 image is about 11 GB. On a Google Cloud `pd-standard` boot disk it took about
+21 minutes to pull, most of the NCCL step; a `pd-balanced` or Hyperdisk boot disk is faster.
 
 ### Where to rent a V100
 
@@ -104,6 +108,7 @@ DCGM's multi-node NVLink tests arrive in DCGM 4.7, after the Stack's 4.5.3. See
 | GPU | How | Result |
 | --- | --- | --- |
 | RTX 2000 Ada | Real GPU, passed through to a Metal3 server VM | Every step passed, with and without `telemetry` |
+| V100 SXM2 16 GB, 1 per VM | Google Cloud `n1-standard-8`, driver 580.178.04, NCCL image NGC PyTorch 24.12, 2026-10-21 | Every step passed: DCGM level 2 (`memory`, `pcie`, `software`), NCCL with one rank, a 15-minute soak at 62 C peak and 316 W |
 | B200, 8 per server | nvml-mock, no CUDA | Inventory, telemetry, the thermal, XID and ECC fault paths |
 | GB300 tray | nvml-mock on a lab node | GPUs detected; the Stack has not run there yet |
 | GB200, GB300, B200, H100, A100, L40S, T4 | Captured `nvidia-smi -q -x` from real nodes, published with nvml-mock | The NVLink fabric check judges each correctly |

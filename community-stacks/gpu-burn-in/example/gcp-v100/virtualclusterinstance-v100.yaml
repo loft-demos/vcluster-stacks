@@ -2,12 +2,11 @@
 # provider in nodeprovider-gcp-v100.yaml. The values differ from the defaults only where Volta needs
 # it (see GPU_SUPPORT.md):
 #   - driverVersion pins a 580 driver, the last branch that supports Volta. Newer GPU Operator
-#     releases default to 595, which does not.
+#     releases default to 595, which does not. 580.178.04 builds on Google Cloud's 7.0 kernel; the
+#     GPU Operator's default 580.126.20 does not.
 #   - ncclImage is NGC PyTorch 24.12, the last release that supports Volta. The default image is
 #     built with CUDA 13, which has no Volta code.
-#   - DCGM: NVIDIA says Volta on driver 580 needs DCGM's CUDA 12 build, and the default image holds
-#     both builds. Watch dcgmdiag first; if it fails with an unsupported-device or kernel error,
-#     switch dcgmImage to one with only the CUDA 12 build.
+#   - DCGM: the default image holds DCGM's CUDA 12 and 13 builds, and passed level 2 on a V100.
 #
 # One GPU, so nccl runs with one rank (it proves CUDA and NCCL work, not bandwidth), and the NVLink
 # fabric check skips the V100, which reports no fabric.
@@ -35,7 +34,7 @@ spec:
     gpuModel: V100
     profile: v100-smoke
     driverPreinstalled: "false"
-    driverVersion: "580.126.20"
+    driverVersion: "580.178.04"
     ncclImage: nvcr.io/nvidia/pytorch:24.12-py3
     dcgmDiagLevel: "2"
     runNCCL: "true"

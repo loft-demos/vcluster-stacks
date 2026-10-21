@@ -41,6 +41,11 @@ The controller watches StackInstances of the `gpu-burn-in` StackTemplate. For ea
    Machine's host name, which is the Machine's name after `<provider>.` on Metal3 and its display
    name on NICo. A Machine the report has no node for is not recorded, with a `NoNodeResult`
    event.
+
+   When no Machine holds the NodeClaims, as for a cloud VM from a Terraform provider, the run is
+   recorded as a report only: a QualificationReport per node, labeled
+   `qualification.vcluster-stacks.io/no-inventory: "true"`, with a `ReportOnly` event. Steps 3 and 5
+   are skipped; step 6 still runs.
 3. **It updates NetBox, if the run asks.** The device comes from the Machine's
    `netbox.vcluster.com/url` annotation. On a failure, the device status becomes `failed` and the
    admit tag is removed; on a pass, the qualified tag is added. Either way, a journal entry gets
@@ -86,7 +91,7 @@ metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f   metal3-us-va-blacksburg
 
 | Field | Content |
 | --- | --- |
-| `spec.machineRef`, `providerRef`, `assetID`, `inventoryURL` | The machine qualified, and its inventory page (the Machine's NetBox device) |
+| `spec.machineRef`, `providerRef`, `assetID`, `inventoryURL` | The machine qualified, and its inventory page (the Machine's NetBox device). For a server without a Machine, `<provider>.<node>` and no inventory page |
 | `spec.topology` | Where it is: `site`, `location` and `rack` by default, from the Machine's labels |
 | `spec.source` | What ran it: `kind` (`Stack`, `NICoValidation`, `vMetalAgent`, `Other`) and, for a Stack, the StackInstance and template |
 | `spec.result`, `failedTests`, `summary`, `profile` | The verdict and the thresholds it was judged against. For a run over several nodes, this machine's own verdict |
@@ -97,7 +102,8 @@ metal3-us-va-blacksburg-dc1.rack-b-u18-xlarge-b5f29a6f   metal3-us-va-blacksburg
 
 The spec is a record. The API server rejects any change to it, and the labels
 `qualification.vcluster-stacks.io/machine`, `/result`, `/provider`, `/profile`, `/source-kind`
-and, for a run over several nodes, `/group`
+and, for a run over several nodes, `/group`, and for a server without a Machine,
+`/no-inventory`,
 make reports easy to select.
 
 The controller keeps at most `keepReports` (5) reports per machine and drops reports finished more
@@ -216,8 +222,9 @@ doesn't serve.
 - vCluster Platform 4.12.2 or later, which stores Stack outputs in the outputs Secret.
 - The gpu-burn-in Stack from this repository, with the `recordResult`, `netboxUpdate` and
   `releaseServer` parameters.
-- Servers from a node provider with an inventory, such as Metal3 or NICo, so each server has a
-  Machine. A KubeVirt or cloud node has no Machine, and the controller records nothing for it.
+- For a label and NetBox: servers from a node provider with an inventory, such as Metal3 or
+  NICo, so each server has a Machine. A KubeVirt or cloud node has no Machine; the controller
+  records its run as a QualificationReport only (see [What it does](#what-it-does)).
 - For the `machine` target to gate NodeTypes: vCluster Platform v5.0.0-alpha.5 or later. Earlier
   builds, such as the 4.13 alphas, accept the label, but their Metal3 NodeTypes select on
   BareMetalHost labels only, so use `bmh` there.
@@ -576,6 +583,12 @@ and deleted about a minute later, and the Machine a minute after that. The machi
 QualificationReports stayed. After device 2 was set back to `active` and tagged `vcluster-sync`, the
 import created the BareMetalHost and Machine again, with no result label and `SourceAttached=True`,
 and the host went through inspection.
+
+**Report only, 2026-10-21:** a Google Cloud N1 VM with one V100 from a Terraform node provider,
+run from a workstation. The tenant cluster had no Machine, so the controller created
+QualificationReport `auto-nodes-gcp-gpu.gpu-burn-in-v100-3-67f318a1-001-2ce21d34` (`passed`, every
+test with its metrics) labeled `no-inventory: "true"`, wrote no label, and with `releaseServer: true`
+deleted the tenant cluster, which deleted the VM.
 
 Not tested yet:
 

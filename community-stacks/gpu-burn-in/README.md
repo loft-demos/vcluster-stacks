@@ -247,6 +247,27 @@ The lifecycle is:
 5. A passed server is now visible to production NodeTypes. A failed one stays out until it is
    repaired and passes again.
 
+### Cloud VMs and other servers without an inventory
+
+A Terraform node provider, such as the Google Cloud or AWS auto nodes templates, creates a new VM
+for each NodeClaim and deletes it with the tenant cluster. There is no lasting server, so there is
+nothing to label, gate or quarantine. The Stack itself runs the same way. It needs only a NodeType
+that the tenant cluster's `nodeTypeProperty` and `nodeTypeValue` select, and a driver the VM's
+kernel can build. [example/gcp-v100/](example/gcp-v100/) is a complete example.
+
+The recorder still records the run, as a report only:
+
+- **A QualificationReport per node**, with the label `qualification.vcluster-stacks.io/no-inventory:
+  "true"` and a `ReportOnly` event on the StackInstance. The report names the machine
+  `<provider>.<node>`, as an inventory Machine would be named, so it shows on the dashboards. No
+  Machine of that name exists.
+- **No label and no NetBox update.** `netboxUpdate` has nothing to act on.
+- **`releaseServer` still deletes the tenant cluster**, which deletes the VM.
+
+Each VM gets a new node name, so every run is a new machine in the history. Use it to qualify a
+GPU type, driver or image before relying on it, or to measure a baseline, such as NCCL bus
+bandwidth for `ncclMinBusBandwidthGBps`. It doesn't track individual servers.
+
 ### The recorder controller
 
 [recorder/](recorder/) is a small controller with its own Helm chart. Install it once on the
@@ -277,7 +298,9 @@ troubleshooting.
   - The GPU Operator chart, `https://helm.ngc.nvidia.com/nvidia`.
   - This repository (or your fork) as a Git source.
   - The namespaces `gpu-operator` and `gpu-burn-in`.
-- A node provider with the server, and a node type that selects only servers to qualify.
+- A node provider with the server, and a node type that selects only servers to qualify. A
+  Terraform provider's cloud VMs work too; see
+  [Cloud VMs](#cloud-vms-and-other-servers-without-an-inventory).
 - Platform private nodes, with the VPN reachable by the server.
 - A node OS and kernel the GPU Operator supports. Either the driver is preinstalled
   (`driverPreinstalled: true`), or the GPU Operator can pull and build it.
