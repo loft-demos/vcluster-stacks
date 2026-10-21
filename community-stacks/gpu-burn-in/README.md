@@ -458,8 +458,9 @@ community-stacks/gpu-burn-in/tests/nvml-mock-e2e.sh --project default \
 | `thermal` | `nvml-mock-ctl temp --gpu 0 142` during the soak | `failed: soak`, above `maxGPUTempC` |
 | `xid` | `nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --xid 48` during the soak | `failed: soak`, Xid 48 |
 
-The thermal path matches one verified with NVSentinel on nvml-mock, where DCGM reported the spike
-capped at 95 C. Whether DCGM's last-XID field reflects an nvml-mock Xid has not been verified.
+Both faults during the soak are verified: the thermal spike fails the soak with `above 90C: GPU 0
+95C` (nvml-mock caps the reported temperature at 95 C), and the injected Xid fails it with `GPU 0
+Xid 48`, because DCGM's last-XID field reflects the simulated error.
 
 ## Test on a single real GPU
 
@@ -533,7 +534,8 @@ kubectl delete argocdapplicationtemplates,stacktemplates,virtualclustertemplates
   finding about the server and its image, and the report records it.
 - **`gpu-operator` Failed with `CRD ... is not established`.** Argo CD briefly reports the GPU
   Operator Degraded while its CRDs register, and the Platform fails a task as soon as its
-  Application is Degraded. Once the Application is Healthy, retry the task:
+  Application is Degraded. It usually goes Healthy again on its own within a minute. If it
+  stays Failed after the Application is Healthy, retry the task:
   `kubectl -n <project-namespace> annotate stackinstance <name> platform.vcluster.com/stack-retry=gpu-operator --overwrite`.
 - **`gpu-operator` stays Progressing while the Argo CD sync stalls.** On the test lab, the sync
   stalled twice: once at `Creating namespace`, with nothing created, and once at `waiting for
@@ -641,10 +643,20 @@ The run also showed what nvml-mock needs from the GPU Operator (`nvmlMock`). It 
 tests must not request `nvidia.com/gpu`: the unhealthy GPU left a pod requesting 8 Pending, before
 this was changed.
 
+**Fleet-scale recorder and dashboards, 2026-10-20.** With the recorder in-cluster (`sha-a6c8deb`),
+three more runs were recorded with topology from NetBox (`site`, `location` and `rack`):
+
+- **nvml-mock thermal failure:** `nvml-mock-ctl temp --gpu 0 142` one minute into the soak failed it
+  with `above 90C: GPU 0 95C`.
+- **RTX 2000 Ada:** passed again, with DCGM level 2, NCCL and a 15-minute DCGM soak at 78 C and 70 W.
+- **nvml-mock XID failure:** `nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --xid 48` during the
+  soak failed it with `GPU 0 Xid 48`. That server's two failures in a row show as
+  `gpu_qualification_consecutive_failures` 2 on the Failures dashboard.
+
 Not exercised yet:
 - Any multi-GPU server, NVLink, DCGM levels 3 and 4, or an NCCL bandwidth floor.
 - A failing server on real hardware. The fixtures and nvml-mock cover the failure paths.
-- The `nvml-mock-e2e.sh` scenarios as a script, and the thermal and XID-during-soak faults.
+- The `nvml-mock-e2e.sh` scenarios as a script. The same faults were run by hand.
 - The recorder in-cluster from its image, the `machine` target, and NetBox updates. Its unit tests
   cover these against a fake API server and a fake NetBox.
 - The S3 upload.
