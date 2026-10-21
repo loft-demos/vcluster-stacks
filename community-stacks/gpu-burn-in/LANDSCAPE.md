@@ -34,15 +34,18 @@ a detail here.
   - optionally, NetBox status, tags and a journal entry, which take a failed server out of
     vCluster Platform;
   - Prometheus metrics and Grafana dashboards per machine, rack and site.
-- **Not covered:** NCCL across servers, NVLink domains that span trays, the network between
-  racks, and training workloads. See
+- **Not covered yet:** NCCL across servers, traffic across an NVLink domain that spans trays, the
+  network between racks, and training workloads. Each NVL72 tray's NVLink fabric registration,
+  health and clique are checked, but no test sends traffic between trays. See
   [Rack-scale and multi-rack fabric](README.md#rack-scale-and-multi-rack-fabric).
+  [NVCRE.md](NVCRE.md) plans to add these through NVCRE. Only its first phase is built: the
+  recorder and QualificationReports can keep a separate verdict for each node of a run.
 
 ## Comparison
 
 | Tool | Source | Runs on | Tests | Across nodes | Result kept per machine | On failure |
 | --- | --- | --- | --- | --- | --- | --- |
-| **This Stack** | Apache-2.0 | vCluster Platform tenant clusters | Inventory, DCGM 1 to 4, NCCL in one server, 24-hour soak | No | QualificationReport, label, NetBox | Label gates NodeTypes; NetBox removes the server |
+| **This Stack** | Apache-2.0 | vCluster Platform tenant clusters | Inventory with NVLink fabric checks, DCGM 1 to 4, NCCL in one server, 24-hour soak with NVLink error counts | Not yet; planned through NVCRE | QualificationReport, label, NetBox | Label gates NodeTypes; NetBox removes the server |
 | **NVCRE** | NVIDIA, Apache-2.0 | Kubernetes operator | NCCL in five variants, DCGM level 4, NeMo training | Yes: per node, per NVLink domain, whole cluster, with bisection to suspect nodes | Per node, in ConfigMaps the Certification points to | Nothing, by design |
 | **NVSentinel** | NVIDIA, Apache-2.0 | Kubernetes | Continuous GPU, log and NIC monitoring; checks before GPU pods start; validation of new nodes | Pre-start NCCL across nodes | Node conditions and events | Cordon, taint, drain, GPU reset or reboot |
 | **NICo machine validation** | NVIDIA, part of NICo | Bare metal, before the OS a tenant gets | DCGM level 2 or 3, stress-ng, NVMe, site plugins | No | NICo's database and health reports | Host held back from allocation |
