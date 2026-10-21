@@ -21,6 +21,29 @@ and the message names the failed tests. Either way the report stays readable.
 [automation/record-qualification.sh](automation/record-qualification.sh) then writes the result to
 the server's inventory record: a label and annotations on its Platform Machine or BareMetalHost, and optionally NetBox.
 
+Every server ends labeled passed or failed, then goes back to the pool:
+
+```mermaid
+flowchart TB
+  claim["<b>Claim the server</b><br/>A temporary tenant cluster<br/>takes it as its only node"]
+  operator["<b>Install the GPU Operator</b><br/>Driver, device plugin, DCGM<br/>and dcgm-exporter"]
+  tests["<b>Run the tests</b><br/>gpuready, inventory, dcgmdiag,<br/>nccl, soak"]
+  report["<b>Write the report</b><br/>Result, failed tests,<br/>measurements, Stack outputs"]
+  record["<b>Record the result</b><br/>Label on the Machine or BareMetalHost,<br/>a QualificationReport, optionally NetBox"]
+  release["<b>Release the server</b><br/>Delete the tenant cluster;<br/>the node provider wipes the server"]
+  passed["<b>Admitted</b><br/>Production NodeTypes select it"]
+  failed["<b>Held back</b><br/>Only the qualification NodeType<br/>selects it until it passes"]
+
+  claim --> operator --> tests
+  tests -- "always, pass or fail" --> report
+  report --> record --> release
+  release -- passed --> passed
+  release -- failed --> failed
+```
+
+The recorder controller or `record-qualification.sh` records the result, and the recorder can also
+release the server. See [Qualify and quarantine servers](#qualify-and-quarantine-servers).
+
 Everything is built from existing vCluster Platform features: private nodes, Stacks, Argo CD and
 Kubernetes Jobs. The tests run public NVIDIA images. The step logic is a small Helm chart in this
 directory that Argo CD reads from Git.
