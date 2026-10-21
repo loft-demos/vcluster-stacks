@@ -1063,7 +1063,7 @@
     {
       "type": "timeseries",
       "title": "Errors",
-      "description": "",
+      "description": "NVLink fabric and soak NVLink series appear only when the run reported them.",
       "targets": [
         {
           "datasource": {
@@ -1082,6 +1082,33 @@
           "expr": "max(gpu_qualification_test_metric{machine=\"$machine\",test=\"soak\",metric=\"gpus_with_xid\"})",
           "refId": "B",
           "legendFormat": "GPUs with XID"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(gpu_qualification_test_metric{machine=\"$machine\",test=\"inventory\",metric=\"inactive_nvlinks\"})",
+          "refId": "C",
+          "legendFormat": "inactive NVLinks"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(gpu_qualification_test_metric{machine=\"$machine\",test=\"inventory\",metric=\"fabric_unhealthy_gpus\"})",
+          "refId": "D",
+          "legendFormat": "GPUs with unhealthy fabric"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(gpu_qualification_test_metric{machine=\"$machine\",test=\"soak\",metric=\"gpus_with_nvlink_errors\"})",
+          "refId": "E",
+          "legendFormat": "GPUs with NVLink errors"
         }
       ],
       "fieldConfig": {

@@ -264,6 +264,17 @@ fleet.add(bargauge("Slowest 20 servers for NCCL all_reduce", f"bottomk(20, {NCCL
                    min_=0, link=server_link, desc="GB/s. Single-GPU servers are left out."), 12, 9, 12)
 fleet.advance(9)
 
+fleet.row("NVLink")
+NVL = f'gpu_qualification_test_metric{{{FILTER},test="inventory",metric=~"inactive_nvlinks|fabric_unhealthy_gpus"}}'
+NVE = f'gpu_qualification_test_metric{{{FILTER},test="soak",metric="gpus_with_nvlink_errors"}}'
+fleet.add(bargauge("Inactive NVLinks or unhealthy fabric, top 20", f"topk(20, {NVL} > 0)", "{{machine}}: {{metric}}",
+                   thresholds=RED_ABOVE_0, min_=0, link=server_link,
+                   desc="From inventory. fabric_unhealthy_gpus counts GPUs whose NVLink fabric (NVL72) is not healthy."), 12, 9, 0)
+fleet.add(bargauge("GPUs with NVLink errors in the soak, top 20", f"topk(20, {NVE} > 0)", "{{machine}}",
+                   thresholds=RED_ABOVE_0, min_=0, link=server_link,
+                   desc="GPUs whose NVLink error counters grew during the soak. Only drivers that report the counters."), 12, 9, 12)
+fleet.advance(9)
+
 # =================================================================================================
 # Failures
 # =================================================================================================
@@ -293,11 +304,15 @@ fail.add(table("Not-qualified servers", [
     target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="inventory",metric="uncorrected_ecc_errors"}})', "F", table=True),
     target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="soak",metric="peak_temp_c"}})', "G", table=True),
     target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="soak",metric="gpus_with_xid"}})', "H", table=True),
+    target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="inventory",metric="inactive_nvlinks"}})', "I", table=True),
+    target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="inventory",metric="fabric_unhealthy_gpus"}})', "J", table=True),
+    target(f'{M} (gpu_qualification_test_metric{{{FILTER},test="soak",metric="gpus_with_nvlink_errors"}})', "K", table=True),
 ], "machine", {
     "machine": "Machine", "site": "Site", "rack": "Rack", "gpu_model": "GPU model", "result": "Result",
     "failed_tests": "Failed tests", "summary": "Why", "Value #B": "Finished", "Value #C": "Failures in a row",
     "Value #D": "GPUs", "Value #E": "Expected", "Value #F": "Uncorrected ECC", "Value #G": "Soak peak (C)",
-    "Value #H": "GPUs with XID", "inventory_url": "Inventory", "report": "QualificationReport"},
+    "Value #H": "GPUs with XID", "Value #I": "Inactive NVLinks", "Value #J": "Fabric unhealthy",
+    "Value #K": "GPUs with NVLink errors", "inventory_url": "Inventory", "report": "QualificationReport"},
     desc="One row per server whose latest qualification failed or errored, newest first. Click a machine for its history.",
     overrides=[
         override("Machine", ("links", [{"title": "Open server", "url": SERVER_LINK}])),
@@ -312,6 +327,8 @@ fail.add(table("Not-qualified servers", [
                  ("custom.cellOptions", {"type": "color-text"})),
         override("Uncorrected ECC", ("thresholds", RED_ABOVE_0), ("custom.cellOptions", {"type": "color-text"})),
         override("GPUs with XID", ("thresholds", RED_ABOVE_0), ("custom.cellOptions", {"type": "color-text"})),
+        *[override(n, ("thresholds", RED_ABOVE_0), ("custom.cellOptions", {"type": "color-text"}))
+          for n in ("Inactive NVLinks", "Fabric unhealthy", "GPUs with NVLink errors")],
         override("Soak peak (C)", ("thresholds", TEMP), ("custom.cellOptions", {"type": "color-text"})),
     ], sort={"displayName": "Finished", "desc": True}), 24, 12, 0)
 fail.advance(12)
@@ -377,8 +394,13 @@ srv.add(timeseries("NCCL bus bandwidth",
                    [(f'gpu_qualification_test_metric{{{MS},test="nccl",metric=~".+_bus_bandwidth_gbps"}}', "{{metric}}")],
                    step=True, desc="GB/s per collective."), 12, 7, 0)
 srv.add(timeseries("Errors", [(f'max(gpu_qualification_test_metric{{{MS},test="inventory",metric="uncorrected_ecc_errors"}})', "uncorrected ECC"),
-                             (f'max(gpu_qualification_test_metric{{{MS},test="soak",metric="gpus_with_xid"}})', "GPUs with XID")],
-                   step=True), 12, 7, 12)
+                             (f'max(gpu_qualification_test_metric{{{MS},test="soak",metric="gpus_with_xid"}})', "GPUs with XID"),
+                             (f'max(gpu_qualification_test_metric{{{MS},test="inventory",metric="inactive_nvlinks"}})', "inactive NVLinks"),
+                             (f'max(gpu_qualification_test_metric{{{MS},test="inventory",metric="fabric_unhealthy_gpus"}})',
+                              "GPUs with unhealthy fabric"),
+                             (f'max(gpu_qualification_test_metric{{{MS},test="soak",metric="gpus_with_nvlink_errors"}})',
+                              "GPUs with NVLink errors")],
+                   step=True, desc="NVLink fabric and soak NVLink series appear only when the run reported them."), 12, 7, 12)
 srv.advance(7)
 
 # =================================================================================================

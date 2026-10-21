@@ -1715,6 +1715,159 @@
         "x": 12,
         "y": 32
       }
+    },
+    {
+      "type": "row",
+      "title": "NVLink",
+      "id": 20,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Inactive NVLinks or unhealthy fabric, top 20",
+      "description": "From inventory. fabric_unhealthy_gpus counts GPUs whose NVLink fabric (NVL72) is not healthy.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(20, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"inventory\",metric=~\"inactive_nvlinks|fabric_unhealthy_gpus\"} > 0)",
+          "refId": "A",
+          "legendFormat": "{{machine}}: {{metric}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Open server",
+              "url": "/d/gpu-burn-in-server?var-machine=${__field.labels.machine}&${datasource:queryparam}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "id": 21,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "GPUs with NVLink errors in the soak, top 20",
+      "description": "GPUs whose NVLink error counters grew during the soak. Only drivers that report the counters.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "topk(20, gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"gpus_with_nvlink_errors\"} > 0)",
+          "refId": "A",
+          "legendFormat": "{{machine}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Open server",
+              "url": "/d/gpu-burn-in-server?var-machine=${__field.labels.machine}&${datasource:queryparam}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "id": 22,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      }
     }
   ]
 }

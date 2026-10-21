@@ -551,6 +551,42 @@
           "instant": true,
           "range": false,
           "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (machine) (gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"inventory\",metric=\"inactive_nvlinks\"})",
+          "refId": "I",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (machine) (gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"inventory\",metric=\"fabric_unhealthy_gpus\"})",
+          "refId": "J",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (machine) (gpu_qualification_test_metric{provider=~\"$provider\",profile=~\"$profile\",gpu_model=~\"$gpu_model\",site=~\"$site\",rack=~\"$rack\",test=\"soak\",metric=\"gpus_with_nvlink_errors\"})",
+          "refId": "K",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
       ],
       "transformations": [
@@ -580,6 +616,9 @@
                 "Value #F",
                 "Value #G",
                 "Value #H",
+                "Value #I",
+                "Value #J",
+                "Value #K",
                 "inventory_url",
                 "report"
               ]
@@ -604,6 +643,9 @@
               "Value #F": true,
               "Value #G": true,
               "Value #H": true,
+              "Value #I": true,
+              "Value #J": true,
+              "Value #K": true,
               "inventory_url": true,
               "report": true
             },
@@ -622,8 +664,11 @@
               "Value #F": 11,
               "Value #G": 12,
               "Value #H": 13,
-              "inventory_url": 14,
-              "report": 15
+              "Value #I": 14,
+              "Value #J": 15,
+              "Value #K": 16,
+              "inventory_url": 17,
+              "report": 18
             },
             "renameByName": {
               "machine": "Machine",
@@ -640,6 +685,9 @@
               "Value #F": "Uncorrected ECC",
               "Value #G": "Soak peak (C)",
               "Value #H": "GPUs with XID",
+              "Value #I": "Inactive NVLinks",
+              "Value #J": "Fabric unhealthy",
+              "Value #K": "GPUs with NVLink errors",
               "inventory_url": "Inventory",
               "report": "QualificationReport"
             }
@@ -832,6 +880,96 @@
             "matcher": {
               "id": "byName",
               "options": "GPUs with XID"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Inactive NVLinks"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fabric unhealthy"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GPUs with NVLink errors"
             },
             "properties": [
               {

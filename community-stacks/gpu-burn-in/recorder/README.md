@@ -177,9 +177,9 @@ failing ones.
 
 | Dashboard | uid | Shows |
 | --- | --- | --- |
-| GPU Burn-In | `gpu-burn-in` | Fleet aggregates: qualified, not qualified, pass rate, qualified in 24h, stale servers; pass rate by GPU model and site; the racks with the most failures and the tests that fail most; soak temperature and NCCL bandwidth distributions per GPU model, with the 20 hottest and slowest servers |
-| GPU Burn-In: Failures | `gpu-burn-in-failures` | One row per not-qualified server: why, failed tests, rack, how many failures in a row, ECC, XID and temperature, with links to the server dashboard and the inventory; failures by rack, test and GPU model, over time |
-| GPU Burn-In: Server | `gpu-burn-in-server` | One machine: result, placement, why it did not pass, every test and measurement, and its history |
+| GPU Burn-In | `gpu-burn-in` | Fleet aggregates: qualified, not qualified, pass rate, qualified in 24h, stale servers; pass rate by GPU model and site; the racks with the most failures and the tests that fail most; soak temperature and NCCL bandwidth distributions per GPU model, with the 20 hottest and slowest servers; the 20 servers with inactive NVLinks, an unhealthy NVLink fabric or NVLink errors in the soak |
+| GPU Burn-In: Failures | `gpu-burn-in-failures` | One row per not-qualified server: why, failed tests, rack, how many failures in a row, ECC, XID, temperature, inactive NVLinks, unhealthy fabric and NVLink errors, with links to the server dashboard and the inventory; failures by rack, test and GPU model, over time |
+| GPU Burn-In: Server | `gpu-burn-in-server` | One machine: result, placement, why it did not pass, every test and measurement, and its history, including NVLink and fabric errors |
 
 All three filter by provider, profile, GPU model, site and rack.
 
