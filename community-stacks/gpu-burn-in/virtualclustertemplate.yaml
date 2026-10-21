@@ -268,6 +268,10 @@ spec:
         # deploy.stacks needs 0.37 or later.
         # renovate: datasource=github-releases depName=loft-sh/vcluster extractVersion=^v(?<version>.+)$
         version: "0.37.2"
+      # A parameter used directly below falls back to its own defaultValue, so a tenant cluster created
+      # with kubectl, which gets no parameter defaults, renders the same as one created in the UI. The
+      # Platform compares the two and otherwise reports the tenant cluster out of date. test-manifests.sh
+      # checks that each fallback matches its parameter's defaultValue.
       values: |-
         privateNodes:
           enabled: true
@@ -281,10 +285,10 @@ spec:
                 - name: gpu
                   quantity: 1
                   nodeTypeSelector:
-                    - property: {{ .Values.nodeTypeProperty | quote }}
+                    - property: {{ .Values.nodeTypeProperty | default "vcluster.com/profile" | quote }}
                       operator: In
                       values:
-                        - {{ .Values.nodeTypeValue | quote }}
+                        - {{ .Values.nodeTypeValue | default "xlarge-gpu" | quote }}
 
         controlPlane:
           backingStore:
@@ -293,7 +297,7 @@ spec:
                 enabled: true
           distro:
             k8s:
-              version: "{{ .Values.kubernetesVersion }}"
+              version: "{{ .Values.kubernetesVersion | default "v1.36.4" }}"
 
         integrations:
           argoCD:

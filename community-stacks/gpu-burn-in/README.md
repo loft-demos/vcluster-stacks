@@ -333,7 +333,7 @@ Set these on the tenant cluster template, which passes the Stack parameters thro
 | `soakMinutes` | `60` | Soak length, 0 to 1440. `0` disables the soak |
 | `soakLoad` | `dcgm` | `dcgm` loads the GPUs; `none` only records telemetry |
 | `maxGPUTempC` | `90` | The soak fails above this |
-| `maxNVLinkErrors` | `0` | The soak fails when a GPU's NVLink replay, recovery and CRC error counters grow by more than this. Corrected FEC errors and BER are not counted |
+| `maxNVLinkErrors` | `0` | The soak fails when a GPU's NVLink error counters grow by more than this: replay, recovery and CRC up to NVLink 4, and the NVLink 5 error counters on Blackwell. Counters that grow on healthy links are not counted: corrected FEC, raw symbol errors, BER and successful link recoveries |
 | `reportS3URI`, `s3CredentialsSecret`, `s3Endpoint` | empty | Optional S3 copy of the report |
 | `recordResult`, `netboxUpdate`, `releaseServer` | `true`, `false`, `false` | What the [recorder controller](#the-recorder-controller) does with this run. No effect without it |
 | `nvmlMock` | `false` | `true` only on NVIDIA nvml-mock servers: validator and GPU Feature Discovery settings for simulated GPUs |
@@ -490,14 +490,13 @@ Both faults during the soak are verified: the thermal spike fails the soak with 
 95C` (nvml-mock caps the reported temperature at 95 C), and the injected Xid fails it with `GPU 0
 Xid 48`, because DCGM's last-XID field reflects the simulated error.
 
-NVLink faults, for the GB200 and GB300 profiles, which simulate an NVL72 tray's fabric. The fixture
-tests cover these checks, but they have not run against nvml-mock yet:
+NVLink faults, for the GB200 and GB300 profiles, which simulate an NVL72 tray's fabric:
 
-| Fault | Expected |
-| --- | --- |
-| `nvml-mock-ctl fabric-health --gpu 1 route_unhealthy` before `inventory` | `failed: inventory`, `NVLink fabric: GPU 1 summary=Unhealthy, route_unhealthy=True` |
-| `nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth`, or a misconfiguration such as `no_partition` | `failed: inventory`, naming the condition |
-| `nvml-mock-ctl nvlink-error --gpu 0 100` during the soak | `failed: soak`, `NVLink errors during the soak: GPU 0 +<count>` |
+| Fault | Expected | Status |
+| --- | --- | --- |
+| `nvml-mock-ctl fabric-health --gpu 1 route_unhealthy` before `inventory` | `failed: inventory`, `NVLink fabric: GPU 1 summary=Unhealthy, route_unhealthy=True` | Verified 2026-10-21 on a simulated GB300 tray: only GPU 1 failed, all four registered in one clique |
+| `nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth`, or a misconfiguration such as `no_partition` | `failed: inventory`, naming the condition | Fixture tests only |
+| `nvml-mock-ctl nvlink-error --gpu 0 100` during the soak | `failed: soak`, `NVLink errors during the soak: GPU 0 +<count>` | Fixture tests only |
 
 ## Test on a single real GPU
 

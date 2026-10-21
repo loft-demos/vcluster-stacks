@@ -257,14 +257,17 @@ telemetry() {
     }' "$1"
 }
 
-# nvlink_error_counts FILE: per GPU, the sum of the NVLink Replay, Recovery and CRC error counters
-# `nvidia-smi nvlink -e` prints, as {"<gpu>": n}. Other counters newer drivers print, such as
-# corrected FEC errors and BER, grow on healthy links and are not counted. Empty when the driver
-# prints none of the three.
+# nvlink_error_counts FILE: per GPU, the sum of the NVLink error counters `nvidia-smi nvlink -e`
+# prints, as {"<gpu>": n}. Up to NVLink 4 (Hopper and earlier) those are Replay, Recovery and CRC
+# Errors. NVLink 5 (Blackwell, GB200, GB300) prints others: Malformed packet, Buffer overrun, Rx,
+# Rx remote, Rx General and Local link integrity Errors, Tx discards, and link recovery failed
+# events. Counters that grow on healthy links are not counted: packets and bytes, raw symbol
+# errors, FEC, BER and successful link recoveries. Empty when the driver prints none.
 nvlink_error_counts() {
   awk '
     /^GPU [0-9]+:/ { gpu = $2; sub(/:$/, "", gpu); next }
-    /(Replay|Recovery|CRC) Errors: *[0-9]+ *$/ {
+    /[Ss]ymbol [Ee]rrors|FEC|BER|[Ss]uccessful/ { next }
+    /([Ee]rrors|[Dd]iscards|[Ff]ailed [Ee]vents): *[0-9]+ *$/ {
       n = $NF; sum[gpu] += n; seen[gpu] = 1
     }
     END { for (g in seen) printf "%s\t%d\n", g, sum[g] }' "$1" 2>/dev/null |

@@ -55,7 +55,7 @@ What works without changes:
 - **Inventory and telemetry.** They read `nvidia-smi` and DCGM fields, which don't depend on CUDA.
 - **The NVLink fabric check** skips V100s, which report no fabric. Inactive NVLink links still fail
   inventory.
-- **The soak's NVLink error check** reads the classic replay, recovery and CRC counters, which
+- **The soak's NVLink error check** reads the replay, recovery and CRC counters, which
   Volta's NVLink 2 reports.
 
 Not verified on a real V100: any of the above, and whether DCGM's per-SKU settings enable

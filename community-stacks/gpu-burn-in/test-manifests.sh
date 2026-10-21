@@ -484,6 +484,21 @@ vct_path = root / "virtualclustertemplate.yaml"
 vct = (load(vct_path) or [{}])[0]
 common(vct_path, vct, "VirtualClusterTemplate")
 vct_params = check_parameters("virtualclustertemplate.yaml", vct["spec"].get("parameters"))
+
+# A parameter the template uses directly, not through the parameter list, needs a fallback equal to
+# its defaultValue. A tenant cluster created with kubectl gets no parameter defaults, and the
+# Platform reports it out of date when it renders differently from one with the defaults applied.
+vct_body = vct_path.read_text()
+vct_defaults = {p.get("variable"): p.get("defaultValue") for p in vct["spec"].get("parameters") or []}
+for m in re.finditer(r"\.Values\.(\w+)((?:\s*\|\s*[^|}]+)*)\}\}", vct_body):
+    var, pipes = m.group(1), m.group(2)
+    if vct_defaults.get(var) is None:
+        continue
+    fallback = re.search(r'default\s+"([^"]*)"', pipes)
+    if not fallback:
+        fail(f"virtualclustertemplate.yaml: .Values.{var} has defaultValue {vct_defaults[var]!r} but no '| default' fallback")
+    elif fallback.group(1) != str(vct_defaults[var]):
+        fail(f"virtualclustertemplate.yaml: .Values.{var} falls back to {fallback.group(1)!r}, but its defaultValue is {vct_defaults[var]!r}")
 check_refs("virtualclustertemplate.yaml", vct["spec"]["template"], vct_params)
 for stack_var, p in stack_params.items():
     if stack_var in vct_params and "defaultValue" in p and str(p["defaultValue"]) != str(vct_params[stack_var].get("defaultValue")):

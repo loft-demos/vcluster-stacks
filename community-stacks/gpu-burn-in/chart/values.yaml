@@ -40,7 +40,8 @@ ncclMinBusBandwidthGBps: "0"
 soakMinutes: "60"
 soakLoad: dcgm
 maxGPUTempC: "90"
-# The soak fails when a GPU's NVLink replay, recovery and CRC error counters grow by more than this.
+# The soak fails when a GPU's NVLink error counters grow by more than this. Counters that grow on
+# healthy links, such as corrected FEC and symbol errors, are not counted.
 maxNVLinkErrors: "0"
 
 # DCGM tests: the shared host engine, host:port, when telemetry is on. Empty starts one in the pod.
