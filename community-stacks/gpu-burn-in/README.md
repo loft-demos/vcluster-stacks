@@ -514,9 +514,9 @@ kubectl delete argocdapplicationtemplates,stacktemplates,virtualclustertemplates
 
 ## Known limitations
 
-- **One server per tenant cluster.** Multi-node qualification (inter-node NCCL over RDMA, fabric
-  tests, or NVIDIA Cluster Readiness Engine) is not covered. An NVL72 rack's NVLink domain spans
-  trays, so per-tray qualification cannot validate it.
+- **One server per tenant cluster.** The Stack tests the GPUs inside one server and the NVLink
+  links that server can see. It does not test the fabric between servers. See
+  [Rack-scale and multi-rack fabric](#rack-scale-and-multi-rack-fabric).
 - **It starts from a booted OS.** A fault that stops the kernel, kubelet or driver from coming up
   shows up as a `gpuready` failure or a tenant cluster that never gets a node. It is not diagnosed
   further. Out-of-band checks such as BMC, Redfish and power-on self-test are outside the Stack.
@@ -533,6 +533,29 @@ kubectl delete argocdapplicationtemplates,stacktemplates,virtualclustertemplates
 - **Enforcement is yours.** The Stack and the recording script produce a result and a label. Only a
   NodeType selector, or an equivalent gate in your provisioning path, keeps a failed server away
   from customers.
+
+### Rack-scale and multi-rack fabric
+
+A server that passes here can still fail as part of a rack. A GB300 NVL72 rack is one NVLink
+domain: 18 compute trays of 4 GPUs each, joined through 9 NVLink switch trays, and it is meant to
+run as one 72-GPU system. Qualifying each tray on its own sees 4 GPUs and never crosses the switch
+trays, so it cannot find a bad switch tray, a bad NVLink cable cartridge, or a slow path between two
+trays. Qualifying a rack needs what this Stack does not have:
+
+- One tenant cluster that claims every tray in the rack as its private nodes, not one per server.
+- Multi-node NVLink set up across the trays: NVIDIA IMEX, which on Kubernetes the NVIDIA DRA driver
+  for GPUs manages as ComputeDomains.
+- NCCL and bandwidth tests launched across all 72 GPUs, plus NVLink switch health from the rack's
+  NVLink management, not just from `nvidia-smi` on each tray.
+- A result for the rack as a whole that still names the failing tray or switch tray.
+  QualificationReports, the recorder and the dashboards record one machine at a time.
+
+Between racks, the fabric is the east-west network: InfiniBand or Spectrum-X Ethernet through each
+server's ConnectX or BlueField NICs. Testing it needs the RDMA devices in the tenant cluster (for
+example through the NVIDIA Network Operator), `perftest` bandwidth and latency between servers,
+NCCL across racks over RDMA, and the switch side's port errors and link flaps. Its result belongs
+to a set of racks or a fabric, not a server. None of that is in this Stack. NVIDIA Cluster Readiness
+Engine covers part of this ground.
 
 ## Troubleshooting
 
