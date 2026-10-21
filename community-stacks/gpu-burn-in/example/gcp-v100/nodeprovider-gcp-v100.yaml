@@ -1,0 +1,42 @@
+# A Google Cloud node provider with one GPU node type: an N1 VM with one NVIDIA V100. Google Cloud
+# still offers V100 on N1 in asia-east1-c, europe-west4-a/b/c, us-central1-a/b/c/f, us-east1-b and
+# us-west1-a/b (as of 2026-10-21).
+#
+# It needs a node template that attaches GPUs, which the public loft-sh/vcluster-auto-nodes-gcp
+# template does not do yet. node-gpu.patch adds it; apply it to a fork and point nodeTemplate
+# below at the fork. The network environment is unchanged and comes from the public repository.
+#
+# Before the first run, request V100 quota in the region (NVIDIA_V100_GPUS, and GPUS_ALL_REGIONS
+# for the project). Set up the provider's credentials as for any Google Cloud node provider; see
+# the vcluster-auto-nodes-gcp README.
+apiVersion: management.loft.sh/v1
+kind: NodeProvider
+metadata:
+  name: auto-nodes-gcp-gpu
+spec:
+  terraform:
+    networkEnvironmentTemplate:
+      infrastructure:
+        git:
+          repository: https://github.com/loft-sh/vcluster-auto-nodes-gcp.git
+          tag: v0.2.0
+          subPath: environment/infrastructure
+    nodeTemplate:
+      git:
+        # Your fork, with node-gpu.patch applied.
+        repository: https://github.com/<your-org>/vcluster-auto-nodes-gcp.git
+        revision: gpu
+        subPath: node
+    nodeTypes:
+      - name: n1-standard-8-v100
+        resources:
+          cpu: "8"
+          memory: 30Gi
+        properties:
+          instance-type: n1-standard-8
+          gpu-type: nvidia-tesla-v100
+          gpu-count: "1"
+          region: us-central1
+          zone: us-central1-a,us-central1-b,us-central1-c,us-central1-f
+          project: "*"
+          vcluster.com/accelerator: v100

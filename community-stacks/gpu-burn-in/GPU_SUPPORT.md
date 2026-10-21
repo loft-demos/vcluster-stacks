@@ -46,7 +46,7 @@ three things from the Stack:
 
 | | What to set | Why |
 | --- | --- | --- |
-| **Driver** | Stay on the 580 branch. The default `gpuOperatorVersion: v26.3.3` builds `580.126.20`. With the driver already on the server, set `driverPreinstalled: "true"`, and keep it on 580 or older | Newer branches don't support Volta. The Stack has no parameter to pin the driver version, so don't move `gpuOperatorVersion` to v26.7 or later for V100 servers |
+| **Driver** | `driverVersion: "580.126.20"`, or another 580 driver. With the driver already on the server, set `driverPreinstalled: "true"` instead, and keep it on 580 or older | Newer branches don't support Volta. The default `gpuOperatorVersion: v26.3.3` builds `580.126.20` too, but v26.7 and later default to 595, so pin it |
 | **NCCL** | `ncclImage: nvcr.io/nvidia/pytorch:24.12-py3` | The last NGC PyTorch release that supports Volta (CUDA 12.6.3). Later releases dropped Volta, and nccl-tests built with CUDA 13 leave out Volta |
 | **DCGM** | Check `dcgmi diag -r 1` on one V100 before a full run | NVIDIA says Volta on driver 580 needs DCGM's CUDA 12 build. The default image contains both builds, and how it picks between them isn't documented. If diagnostics fail with an unsupported-device or kernel error, use an image with only the CUDA 12 build |
 
@@ -60,7 +60,9 @@ What works without changes:
 
 Not verified on a real V100: any of the above, and whether DCGM's per-SKU settings enable
 `targeted_stress` and `targeted_power` on V100. Run one short qualification on a single V100
-before relying on it, for example with `soakMinutes: "15"`.
+before relying on it. [example/gcp-v100/](example/gcp-v100/) has one with these overrides, on a
+Google Cloud N1 VM with one V100: the tenant cluster, a node provider with a V100 node type, and
+the change the Google Cloud node template needs to attach the GPU.
 
 ### Where to rent a V100
 

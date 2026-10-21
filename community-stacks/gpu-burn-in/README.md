@@ -41,7 +41,8 @@ directory that Argo CD reads from Git.
 
 For other GPU burn-in and validation tools and how they compare with this Stack, see
 [LANDSCAPE.md](LANDSCAPE.md). For which GPU generations the defaults support, and the overrides
-Volta (V100) needs, see [GPU_SUPPORT.md](GPU_SUPPORT.md).
+Volta (V100) needs, see [GPU_SUPPORT.md](GPU_SUPPORT.md);
+[example/gcp-v100/](example/gcp-v100/) runs it on a Google Cloud V100 VM.
 
 ## Contents
 

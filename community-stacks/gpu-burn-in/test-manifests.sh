@@ -356,6 +356,8 @@ VARIANTS = {
     "nvml-mock": {"runDCGMDiag": "false", "runNCCL": "false", "soakLoad": "none", "soakMinutes": "5",
                   "driverPreinstalled": "true", "expectedGPUs": "4", "gpuModel": "B200", "nvmlMock": "true"},
     "no-soak": {"soakMinutes": "0", "reportS3URI": "s3://bucket/q", "s3CredentialsSecret": "s3", "telemetry": "false"},
+    "v100": {"driverVersion": "580.126.20", "ncclImage": "nvcr.io/nvidia/pytorch:24.12-py3", "expectedGPUs": "1",
+             "gpuModel": "V100"},
 }
 GPUS_SEEN = "7"  # what gpuready "observed": deliberately not expectedGPUs
 for variant, overrides in VARIANTS.items():
@@ -390,6 +392,8 @@ for variant, overrides in VARIANTS.items():
                     fail(f"{where}: toolkit.enabled={hv['toolkit']['enabled']} with nvmlMock={values['nvmlMock']}; nvml-mock nodes have no operator toolkit for the CDI hook")
                 if any(e.get("name") == "DISABLE_DEV_CHAR_SYMLINK_CREATION" for e in mock_env) is not (values["nvmlMock"] == "true"):
                     fail(f"{where}: the nvml-mock validator settings must follow nvmlMock={values['nvmlMock']}")
+                if hv["driver"].get("version") != (values.get("driverVersion") or None):
+                    fail(f"{where}: driver.version={hv['driver'].get('version')!r} with driverVersion={values.get('driverVersion')!r}")
                 want = values["telemetry"] != "false"
                 if hv["dcgm"]["enabled"] is not want or hv["dcgmExporter"]["enabled"] is not want:
                     fail(f"{where}: DCGM and dcgm-exporter must both follow telemetry={values['telemetry']}")
