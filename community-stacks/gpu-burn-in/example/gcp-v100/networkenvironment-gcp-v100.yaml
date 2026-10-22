@@ -5,6 +5,9 @@
 #
 # The annotation makes it the provider's default, so claims that name no environment use it. The
 # label reserves it for the platform; set it to a tenant's name to lend it to that tenant instead.
+# NetworkEnvironment and networkEnvironmentTemplate are not in vCluster Platform 4.12; they arrived
+# in the 4.13 alphas and ship in 5.0.
+# min-platform-version: 4.13.0-alpha.2
 apiVersion: management.loft.sh/v1
 kind: NetworkEnvironment
 metadata:

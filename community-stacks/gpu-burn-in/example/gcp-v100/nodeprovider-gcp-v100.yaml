@@ -14,6 +14,9 @@
 #   - Set project to your project ID. Project and region must be concrete: the template rejects
 #     wildcards.
 #   - Create the network: networkenvironment-gcp-v100.yaml, with the same project and region.
+# NetworkEnvironment and networkEnvironmentTemplate are not in vCluster Platform 4.12; they arrived
+# in the 4.13 alphas and ship in 5.0.
+# min-platform-version: 4.13.0-alpha.2
 apiVersion: management.loft.sh/v1
 kind: NodeProvider
 metadata:
